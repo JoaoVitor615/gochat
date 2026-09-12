@@ -45,5 +45,7 @@ func NewHost(id *identity.Identity, port int) (host.Host, error) {
 		return nil, fmt.Errorf("create libp2p host: %w", err)
 	}
 
+	id.PeerID = h.ID().String()
+
 	return h, nil
 }
