@@ -1,6 +1,6 @@
 package identity
 
 const (
-	MainDir     = "gochat"
+	MainDir     = ".gochat"
 	KeyFileName = "identity.key"
 )

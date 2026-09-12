@@ -2,6 +2,7 @@ package identity
 
 import (
 	"crypto/ed25519"
+	"errors"
 )
 
 type Identity struct {
@@ -10,52 +11,73 @@ type Identity struct {
 	PeerID     string
 }
 
-// Create generates a new identity and persists its private key.
-func Create() (*Identity, error) {
-	exists, err := IdentityExists()
+func NewIdentity() (*Identity, error) {
+	id := &Identity{}
+	err := id.initialize()
+
 	if err != nil {
 		return nil, err
-	}
-	if exists {
-		return Load()
 	}
 
+	return id, nil
+}
+
+// generates a new identity and persists its private key.
+func (id *Identity) initialize() error {
+	exists, err := IdentityExists()
+	if err != nil {
+		return err
+	}
+
+	if exists {
+		return id.Load()
+	}
+
+	return id.create()
+}
+
+func (id *Identity) create() error {
 	privateKey, publicKey, err := GenerateKey()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	serializedPrivateKey, err := SerializePrivateKey(privateKey)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if err := StoreIdentity([]byte(serializedPrivateKey)); err != nil {
-		return nil, err
+		return err
 	}
 
-	return &Identity{
-		PrivateKey: privateKey,
-		PublicKey:  publicKey,
-	}, nil
+	id.PrivateKey = privateKey
+	id.PublicKey = publicKey
+
+	return nil
 }
 
 // Load loads the persisted identity.
-func Load() (*Identity, error) {
+func (id *Identity) Load() error {
 	serializedPrivateKey, err := LoadIdentity()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	privateKey, err := DeserializePrivateKey(string(serializedPrivateKey))
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return &Identity{
-		PrivateKey: privateKey,
-		PublicKey:  privateKey.Public().(ed25519.PublicKey),
-	}, nil
+	id.PrivateKey = privateKey
+	publicKey, ok := privateKey.Public().(ed25519.PublicKey)
+	if !ok {
+		return errors.New("failed to derive Ed25519 public key")
+	}
+
+	id.PublicKey = publicKey
+
+	return nil
 }
 
 // GetPeerID returns the libp2p peer ID associated with the identity.
