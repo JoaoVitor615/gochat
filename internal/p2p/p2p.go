@@ -11,22 +11,28 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 )
 
+var PackageName = "[p2p]"
+var ErrInvalidPort = errors.New(PackageName + " invalid listen port")
+var ErrIdentityRequired = errors.New(PackageName + " identity is required")
+var ErrInvalidPrivateKey = errors.New(PackageName + " invalid Ed25519 private key")
+var ErrConvertIdentity = errors.New(PackageName + " failed to convert identity for libp2p")
+
 // NewHost creates a libp2p host using the application's persisted identity.
 // A port of 0 asks the operating system to choose an available UDP port.
 func NewHost(id *identity.Identity, port int) (host.Host, error) {
 	if id == nil {
-		return nil, errors.New("identity is required")
+		return nil, ErrIdentityRequired
 	}
 	if len(id.PrivateKey) != ed25519.PrivateKeySize {
-		return nil, errors.New("identity has an invalid Ed25519 private key")
+		return nil, ErrInvalidPrivateKey
 	}
 	if port < 0 || port > 65535 {
-		return nil, fmt.Errorf("invalid listen port: %d", port)
+		return nil, ErrInvalidPort
 	}
 
-	privateKey, _, err := libp2pcrypto.KeyPairFromStdKey(id.PrivateKey)
+	privateKey, _, err := libp2pcrypto.KeyPairFromStdKey(&id.PrivateKey)
 	if err != nil {
-		return nil, fmt.Errorf("convert identity for libp2p: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrConvertIdentity, err)
 	}
 
 	h, err := libp2p.New(
