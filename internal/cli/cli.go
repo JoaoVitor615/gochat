@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/JoaoVitor615/gochat/internal/identity"
 	cli "github.com/urfave/cli/v3"
@@ -13,15 +12,11 @@ func InitCli() *cli.Command {
 		Name:  "gochat",
 		Usage: "P2P chat from your terminal",
 		Action: func(context.Context, *cli.Command) error {
-			id, err := identity.NewIdentity()
+			_, err := identity.NewIdentity()
 
 			if err != nil {
 				return err
 			}
-
-			ser, _ := identity.SerializePrivateKey(id.PrivateKey)
-
-			fmt.Println(ser)
 
 			return nil
 		},
