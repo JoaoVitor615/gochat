@@ -18,3 +18,23 @@ func OpenStream(ctx context.Context, h host.Host, peerID peer.ID) (network.Strea
 	}
 	return stream, nil
 }
+
+func SetStreamHandler(h host.Host, handler network.StreamHandler) {
+	h.SetStreamHandler(ProtocolID, handler)
+}
+
+func HandleStream(stream network.Stream) {
+	defer stream.Close()
+
+	fmt.Println("New stream received")
+
+	buf := make([]byte, 1024)
+
+	n, err := stream.Read(buf)
+	if err != nil {
+		fmt.Println("Error reading stream:", err)
+		return
+	}
+
+	fmt.Println("Received:", string(buf[:n]))
+}
