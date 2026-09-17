@@ -27,7 +27,7 @@ func GoChatCommand(ctx context.Context, cmd *cli.Command) error {
 	defer host.Close()
 
 	fmt.Println("GoChat initialized!")
-	fmt.Println("Peer ID:", host.ID())
+	fmt.Println("Peer ID:", id.PeerID)
 	fmt.Println("Listening on:")
 
 	for _, addr := range host.Addrs() {
