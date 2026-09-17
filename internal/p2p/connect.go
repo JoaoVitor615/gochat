@@ -6,28 +6,24 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/multiformats/go-multiaddr"
 )
 
-func Connect(ctx context.Context, h host.Host, addr string) error {
-	id, err := peer.Decode(h.ID().String())
+// Connect opens a GoChat protocol stream to a known peer.
+func Connect(ctx context.Context, h host.Host, peerID peer.ID) (*Connection, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("connect: context is required")
+	}
+	if h == nil {
+		return nil, fmt.Errorf("connect: host is required")
+	}
+	if err := peerID.Validate(); err != nil {
+		return nil, fmt.Errorf("connect: invalid peer ID: %w", err)
+	}
+
+	stream, err := OpenStream(ctx, h, peerID)
 	if err != nil {
-		return fmt.Errorf("invalid peer ID: %w", err)
+		return nil, err
 	}
 
-	maddr, err := multiaddr.NewMultiaddr(addr)
-	if err != nil {
-		return fmt.Errorf("invalid multiaddr: %w", err)
-	}
-
-	info := peer.AddrInfo{
-		ID:    id,
-		Addrs: []multiaddr.Multiaddr{maddr},
-	}
-
-	if err := h.Connect(ctx, info); err != nil {
-		return fmt.Errorf("connect to peer: %w", err)
-	}
-
-	return nil
+	return newConnection(stream), nil
 }

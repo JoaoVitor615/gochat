@@ -24,17 +24,14 @@ func SetStreamHandler(h host.Host, handler network.StreamHandler) {
 }
 
 func HandleStream(stream network.Stream) {
-	defer stream.Close()
+	connection := newConnection(stream)
+	defer connection.Close()
 
-	fmt.Println("New stream received")
-
-	buf := make([]byte, 1024)
-
-	n, err := stream.Read(buf)
+	msg, err := connection.Receive()
 	if err != nil {
-		fmt.Println("Error reading stream:", err)
+		fmt.Println("Error receiving message")
 		return
 	}
 
-	fmt.Println("Received:", string(buf[:n]))
+	fmt.Println("Received:", msg.Content)
 }
