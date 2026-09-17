@@ -34,6 +34,8 @@ func GoChatCommand(ctx context.Context, cmd *cli.Command) error {
 		fmt.Println(" ", addr)
 	}
 
+	p2p.SetStreamHandler(host, p2p.HandleStream)
+
 	<-ctx.Done()
 
 	return nil
