@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/libp2p/go-libp2p v0.49.0
+	github.com/redis/go-redis/v9 v9.22.0
 	github.com/urfave/cli/v3 v3.11.0
 )
 
@@ -74,7 +75,6 @@ require (
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.60.0 // indirect
 	github.com/quic-go/webtransport-go v0.11.1 // indirect
-	github.com/redis/go-redis/v9 v9.22.0 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
