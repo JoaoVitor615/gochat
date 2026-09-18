@@ -5,13 +5,15 @@ import (
 	"net/http"
 
 	"github.com/JoaoVitor615/gochat/internal/discovery"
+	"github.com/JoaoVitor615/gochat/internal/discovery/repository"
+	"github.com/JoaoVitor615/gochat/internal/discovery/service"
 )
 
 func main() {
-	store := discovery.NewStore("localhost:6379")
-	defer store.Close()
+	redisRepository := repository.NewRedis("localhost:6379")
+	defer redisRepository.Close()
 
-	server := discovery.NewServer(store)
+	server := discovery.NewServer(service.New(redisRepository))
 
 	log.Println("Discovery listening on :8080")
 

@@ -1,4 +1,4 @@
-package discovery
+package service
 
 import (
 	"crypto/rand"
@@ -7,25 +7,18 @@ import (
 
 const tokenAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-func GenerateInviteCode() (string, error) {
+func generateInviteCode() (string, error) {
 	const tokenLength = 9
 
 	raw := make([]byte, tokenLength)
-
 	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("generate invite code: %w", err)
 	}
 
 	token := make([]byte, tokenLength)
-
 	for i, b := range raw {
 		token[i] = tokenAlphabet[int(b)%len(tokenAlphabet)]
 	}
 
-	return fmt.Sprintf(
-		"%s-%s-%s",
-		string(token[:3]),
-		string(token[3:6]),
-		string(token[6:]),
-	), nil
+	return fmt.Sprintf("%s-%s-%s", token[:3], token[3:6], token[6:]), nil
 }
