@@ -1,4 +1,4 @@
-package gochat_main
+package main
 
 import (
 	"context"

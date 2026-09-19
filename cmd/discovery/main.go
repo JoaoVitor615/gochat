@@ -1,4 +1,4 @@
-package discovery_main
+package main
 
 import (
 	"log"
