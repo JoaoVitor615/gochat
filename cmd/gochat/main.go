@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/JoaoVitor615/gochat/internal/cli"
+	"github.com/JoaoVitor615/gochat/internal/chat/cli"
 )
 
 func main() {

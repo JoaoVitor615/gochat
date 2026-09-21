@@ -9,7 +9,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/JoaoVitor615/gochat/internal/message"
+	"github.com/JoaoVitor615/gochat/internal/chat/message"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 )

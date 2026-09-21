@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/JoaoVitor615/gochat/internal/identity"
-	"github.com/JoaoVitor615/gochat/internal/p2p"
+	"github.com/JoaoVitor615/gochat/internal/chat/identity"
+	"github.com/JoaoVitor615/gochat/internal/chat/p2p"
 	cli "github.com/urfave/cli/v3"
 )
 
