@@ -31,13 +31,28 @@ func (c *Client) CreateInvite(peerID string) (string, error) {
 		return "", err
 	}
 
-	resp, err := http.Post(c.BaseURL+CREATE_INVITE_ENDPOINT, "application/json", bytes.NewReader(reqBodyBytes))
+	res, err := http.Post(c.BaseURL+CREATE_INVITE_ENDPOINT, "application/json", bytes.NewReader(reqBodyBytes))
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer res.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(body), nil
+}
+
+func (c *Client) AddPeer(inviteCode string) (string, error) {
+	res, err := http.Get(c.BaseURL + ADD_PEER_ENDPOINT + "/" + inviteCode)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return "", err
 	}
