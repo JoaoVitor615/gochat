@@ -6,7 +6,7 @@ import (
 	cli "github.com/urfave/cli/v3"
 )
 
-func InitCli() *cli.Command {
+func InitCli(app *App) *cli.Command {
 	return &cli.Command{
 		Name:  "gochat",
 		Usage: "P2P chat from your terminal",
