@@ -5,19 +5,13 @@ import (
 	"fmt"
 
 	"github.com/JoaoVitor615/gochat/internal/chat/client"
-	"github.com/JoaoVitor615/gochat/internal/chat/identity"
 	cli "github.com/urfave/cli/v3"
 )
 
-func InviteCommand(ctx context.Context, cmd *cli.Command) error {
-	id, err := identity.NewIdentity()
-	if err != nil {
-		return err
-	}
-
+func (a *App) InviteCommand(ctx context.Context, cmd *cli.Command) error {
 	client := client.NewClient("")
 
-	code, err := client.CreateInvite(id.GetPeerID())
+	code, err := client.CreateInvite(a.Identity.GetPeerID())
 	if err != nil {
 		return err
 	}
