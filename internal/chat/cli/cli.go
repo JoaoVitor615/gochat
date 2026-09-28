@@ -16,7 +16,9 @@ func InitCli(app *App) *cli.Command {
 				Value: 5000,
 			},
 		},
-		Action: GoChatCommand,
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			return app.GoChatCommand(ctx, cmd)
+		},
 		Commands: []*cli.Command{
 			{
 				Name:  "invite",

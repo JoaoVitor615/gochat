@@ -9,7 +9,7 @@ import (
 	cli "github.com/urfave/cli/v3"
 )
 
-func GoChatCommand(ctx context.Context, cmd *cli.Command) error {
+func (a *App) GoChatCommand(ctx context.Context, cmd *cli.Command) error {
 	fmt.Println("Initializing gochat...")
 
 	id, err := identity.NewIdentity()
