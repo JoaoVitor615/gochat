@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/JoaoVitor615/gochat/internal/discovery"
 	"github.com/JoaoVitor615/gochat/internal/discovery/repository"
@@ -10,14 +11,23 @@ import (
 )
 
 func main() {
-	redisRepository := repository.NewRedis("localhost:6379")
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "localhost:6379"
+	}
+	port := os.Getenv("DISCOVERY_PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	redisRepository := repository.NewRedis(redisAddr)
 	defer redisRepository.Close()
 
 	server := discovery.NewServer(service.New(redisRepository))
 
-	log.Println("Discovery listening on :8080")
+	log.Printf("Discovery listening on :%s", port)
 
-	if err := http.ListenAndServe(":8080", server.Routes()); err != nil {
+	if err := http.ListenAndServe(":"+port, server.Routes()); err != nil {
 		log.Fatal(err)
 	}
 }
