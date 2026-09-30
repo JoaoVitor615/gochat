@@ -9,9 +9,9 @@ import (
 )
 
 func (a *App) InviteCommand(ctx context.Context, cmd *cli.Command) error {
-	client := client.NewClient("")
+	client := client.NewClient("http://localhost:8080")
 
-	code, err := client.CreateInvite(a.Identity.GetPeerID())
+	code, err := client.CreateInvite(a.Identity.PeerID)
 	if err != nil {
 		return err
 	}
