@@ -9,6 +9,10 @@ type CreateInviteResponse struct {
 }
 
 type AddPeerResponse struct {
-	PeerID  string `json:"peer_id"`
-	Address string `json:"address"`
+	PeerID    string   `json:"peer_id"`
+	Addresses []string `json:"addresses"`
+}
+
+type ResolveInviteReq struct {
+	Code string `json:"code"`
 }
