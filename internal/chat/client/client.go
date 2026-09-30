@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 )
@@ -36,6 +37,10 @@ func (c *Client) CreateInvite(peerID string) (*CreateInviteResponse, error) {
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
+	}
+
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to create invite: %s", body)
 	}
 
 	var createInviteRes CreateInviteResponse
