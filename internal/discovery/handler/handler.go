@@ -3,10 +3,17 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
-	"strings"
 
 	"github.com/JoaoVitor615/gochat/internal/discovery/service"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
+)
+
+const (
+	maxRequestBodySize = 64 * 1024
+	maxPeerAddresses   = 16
 )
 
 type Handler struct {
@@ -22,6 +29,10 @@ type inviteRequest struct {
 	PeerID string `json:"peer_id"`
 }
 
+type resolveRequest struct {
+	Code string `json:"code"`
+}
+
 type inviteResponse struct {
 	Code string `json:"code"`
 }
@@ -31,18 +42,31 @@ type resolveResponse struct {
 	Addresses []string `json:"addresses"`
 }
 
+type errorResponse struct {
+	Status  int    `json:"status"`
+	Message string `json:"message"`
+}
+
 func New(discoveryService *service.Service) *Handler {
 	return &Handler{service: discoveryService}
 }
 
+func (h *Handler) NotFound(w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusNotFound, "route not found")
+}
+
 func (h *Handler) Announce(w http.ResponseWriter, r *http.Request) {
-	req, ok := h.decodePeerRequest(w, r)
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+
+	req, ok := decodePeerRequest(w, r)
 	if !ok {
 		return
 	}
 
 	if err := h.service.Announce(r.Context(), req.PeerID, req.Addresses); err != nil {
-		http.Error(w, "failed to store peer", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -50,13 +74,17 @@ func (h *Handler) Announce(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Heartbeat(w http.ResponseWriter, r *http.Request) {
-	req, ok := h.decodePeerRequest(w, r)
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+
+	req, ok := decodePeerRequest(w, r)
 	if !ok {
 		return
 	}
 
 	if err := h.service.Heartbeat(r.Context(), req.PeerID, req.Addresses); err != nil {
-		http.Error(w, "failed to update peer", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -64,61 +92,135 @@ func (h *Handler) Heartbeat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Invite(w http.ResponseWriter, r *http.Request) {
-	var req inviteRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
-	if req.PeerID == "" {
-		http.Error(w, "peer_id is required", http.StatusBadRequest)
+
+	var req inviteRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if !validPeerID(req.PeerID) {
+		writeError(w, http.StatusBadRequest, "invalid peer_id")
 		return
 	}
 
 	code, err := h.service.CreateInvite(r.Context(), req.PeerID)
 	if err != nil {
-		http.Error(w, "failed to store invite", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
-	writeJSON(w, inviteResponse{Code: code})
+	writeJSON(w, http.StatusOK, inviteResponse{Code: code})
 }
 
 func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
-	code := strings.TrimPrefix(r.URL.Path, "/resolve/")
-	if code == "" {
-		http.Error(w, "invite code is required", http.StatusBadRequest)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
-	peer, err := h.service.ResolveInvite(r.Context(), code)
+	var req resolveRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Code == "" {
+		writeError(w, http.StatusBadRequest, "code is required")
+		return
+	}
+
+	resolvedPeer, err := h.service.ResolveInvite(r.Context(), req.Code)
 	if err != nil {
-		if errors.Is(err, service.ErrPeerOffline) {
-			http.Error(w, "peer is offline", http.StatusNotFound)
-			return
+		switch {
+		case errors.Is(err, service.ErrInvalidInvite):
+			writeError(w, http.StatusNotFound, "invalid or expired invite")
+		case errors.Is(err, service.ErrPeerOffline):
+			writeError(w, http.StatusNotFound, "peer is offline")
+		default:
+			writeError(w, http.StatusInternalServerError, "internal server error")
 		}
-
-		http.Error(w, "invalid or expired invite", http.StatusNotFound)
 		return
 	}
 
-	writeJSON(w, resolveResponse{PeerID: peer.PeerID, Addresses: peer.Addresses})
+	writeJSON(w, http.StatusOK, resolveResponse{
+		PeerID:    resolvedPeer.PeerID,
+		Addresses: resolvedPeer.Addresses,
+	})
 }
 
-func (h *Handler) decodePeerRequest(w http.ResponseWriter, r *http.Request) (announceRequest, bool) {
+func decodePeerRequest(w http.ResponseWriter, r *http.Request) (announceRequest, bool) {
 	var req announceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return announceRequest{}, false
 	}
-	if req.PeerID == "" || len(req.Addresses) == 0 {
-		http.Error(w, "peer_id and addresses are required", http.StatusBadRequest)
+	if !validPeerID(req.PeerID) {
+		writeError(w, http.StatusBadRequest, "invalid peer_id")
 		return announceRequest{}, false
+	}
+	if len(req.Addresses) == 0 || len(req.Addresses) > maxPeerAddresses {
+		writeError(w, http.StatusBadRequest, "addresses must contain between 1 and 16 entries")
+		return announceRequest{}, false
+	}
+	for _, address := range req.Addresses {
+		if _, err := multiaddr.NewMultiaddr(address); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid address")
+			return announceRequest{}, false
+		}
 	}
 
 	return req, true
 }
 
-func writeJSON(w http.ResponseWriter, value any) {
+func decodeJSON(w http.ResponseWriter, r *http.Request, value any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(value); err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		} else {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+		}
+		return false
+	}
+
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return false
+	}
+
+	return true
+}
+
+func validPeerID(value string) bool {
+	_, err := peer.Decode(value)
+	return err == nil
+}
+
+func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {
+	if r.Method == method {
+		return true
+	}
+
+	writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	return false
+}
+
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, errorResponse{Status: status, Message: message})
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		payload = []byte(`{"status":500,"message":"internal server error"}`)
+		status = http.StatusInternalServerError
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(value)
+	w.WriteHeader(status)
+	if _, err := w.Write(append(payload, '\n')); err != nil {
+		return
+	}
 }

@@ -1,6 +1,11 @@
 package repository
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+var ErrNotFound = errors.New("record not found")
 
 // Repository defines the persistence operations required by discovery.
 type Repository interface {

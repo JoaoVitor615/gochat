@@ -58,12 +58,18 @@ func (s *Service) CreateInvite(ctx context.Context, peerID string) (string, erro
 func (s *Service) ResolveInvite(ctx context.Context, code string) (ResolvedPeer, error) {
 	peerID, err := s.repository.GetAndDeleteInvite(ctx, code)
 	if err != nil {
-		return ResolvedPeer{}, fmt.Errorf("%w: %w", ErrInvalidInvite, err)
+		if errors.Is(err, repository.ErrNotFound) {
+			return ResolvedPeer{}, ErrInvalidInvite
+		}
+		return ResolvedPeer{}, fmt.Errorf("get invite: %w", err)
 	}
 
 	addresses, err := s.repository.GetPeer(ctx, peerID)
 	if err != nil {
-		return ResolvedPeer{}, fmt.Errorf("%w: %w", ErrPeerOffline, err)
+		if errors.Is(err, repository.ErrNotFound) {
+			return ResolvedPeer{}, ErrPeerOffline
+		}
+		return ResolvedPeer{}, fmt.Errorf("get peer: %w", err)
 	}
 
 	return ResolvedPeer{PeerID: peerID, Addresses: addresses}, nil
