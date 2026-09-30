@@ -3,6 +3,10 @@ package identity
 import (
 	"crypto/ed25519"
 	"errors"
+	"fmt"
+
+	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 type Identity struct {
@@ -18,8 +22,26 @@ func NewIdentity() (*Identity, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := id.initializePeerID(); err != nil {
+		return nil, err
+	}
 
 	return id, nil
+}
+
+func (id *Identity) initializePeerID() error {
+	privateKey, _, err := libp2pcrypto.KeyPairFromStdKey(&id.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("convert identity for libp2p: %w", err)
+	}
+
+	peerID, err := peer.IDFromPrivateKey(privateKey)
+	if err != nil {
+		return fmt.Errorf("derive peer ID: %w", err)
+	}
+
+	id.PeerID = peerID.String()
+	return nil
 }
 
 // generates a new identity and persists its private key.
@@ -78,10 +100,4 @@ func (id *Identity) Load() error {
 	id.PublicKey = publicKey
 
 	return nil
-}
-
-// GetPeerID returns the libp2p peer ID associated with the identity.
-// It will be populated when libp2p identity integration is added.
-func (i *Identity) GetPeerID() string {
-	return i.PeerID
 }
