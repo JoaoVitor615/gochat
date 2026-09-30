@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -43,6 +44,9 @@ func (r *Redis) SetPeer(ctx context.Context, peerID string, addresses []string) 
 func (r *Redis) GetPeer(ctx context.Context, peerID string) ([]string, error) {
 	data, err := r.client.Get(ctx, "peer:"+peerID).Bytes()
 	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, ErrNotFound
+		}
 		return nil, fmt.Errorf("get peer: %w", err)
 	}
 
@@ -65,6 +69,9 @@ func (r *Redis) SetInvite(ctx context.Context, code, peerID string) error {
 func (r *Redis) GetAndDeleteInvite(ctx context.Context, code string) (string, error) {
 	peerID, err := r.client.GetDel(ctx, "invite:"+code).Result()
 	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return "", ErrNotFound
+		}
 		return "", fmt.Errorf("get invite: %w", err)
 	}
 
