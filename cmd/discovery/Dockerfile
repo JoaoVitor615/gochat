@@ -1,13 +1,16 @@
+# syntax=docker/dockerfile:1
+
 FROM golang:1.27 AS builder
 
 WORKDIR /app
 
 COPY go.mod go.sum ./
-RUN go mod download
+COPY cmd/discovery ./cmd/discovery
+COPY internal/discovery ./internal/discovery
 
-COPY . .
-
-RUN go build -o discovery ./cmd/discovery
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -o discovery ./cmd/discovery
 
 FROM debian:bookworm-slim
 
