@@ -23,7 +23,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/announce", s.handler.Announce)
 	mux.HandleFunc("/heartbeat", s.handler.Heartbeat)
 	mux.HandleFunc("/invite", s.handler.Invite)
-	mux.HandleFunc("/resolve/", s.handler.Resolve)
+	mux.HandleFunc("/resolve", s.handler.Resolve)
+	mux.HandleFunc("/", s.handler.NotFound)
 
 	return mux
 }
