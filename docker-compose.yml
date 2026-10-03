@@ -9,9 +9,8 @@ services:
     build:
       context: .
       dockerfile: cmd/discovery/Dockerfile
-    environment:
-      - DISCOVERY_PORT=8080
-      - REDIS_ADDR=redis:6379
+    env_file:
+      - .env.discovery
     ports:
       - "8080:8080"
     depends_on:
