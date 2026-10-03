@@ -34,11 +34,10 @@ jobs:
 
           parameters=$(jq -n --arg dir "$APP_DIR" '{commands: [
             "set -eu",
-            "cd -- " + ($dir | @sh),
-            "git fetch origin master",
-            "git checkout master",
-            "git pull --ff-only origin master",
-            "docker compose up -d --build"
+            "sudo -u ec2-user -H git -C " + ($dir | @sh) + " fetch origin master",
+            "sudo -u ec2-user -H git -C " + ($dir | @sh) + " checkout master",
+            "sudo -u ec2-user -H git -C " + ($dir | @sh) + " pull --ff-only origin master",
+            "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " up -d --build"
           ]}')
 
           command_id=$(aws ssm send-command \
