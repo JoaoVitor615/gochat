@@ -6,17 +6,23 @@ import (
 	"os"
 
 	"github.com/JoaoVitor615/gochat/internal/chat/cli"
+	"github.com/JoaoVitor615/gochat/internal/chat/client"
 	"github.com/JoaoVitor615/gochat/internal/chat/identity"
 )
 
 func main() {
+	discoveryURL := os.Getenv("DISCOVERY_URL")
+
 	id, err := identity.NewIdentity()
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	client := client.NewClient(discoveryURL)
+
 	app := &cli.App{
-		Identity: id,
+		Identity:        id,
+		DiscoveryClient: client,
 	}
 
 	cmd := cli.InitCli(app)
