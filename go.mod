@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/libp2p/go-libp2p v0.49.0
+	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/urfave/cli/v3 v3.11.0
 )
@@ -41,7 +42,6 @@ require (
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/multiformats/go-base32 v0.1.0 // indirect
 	github.com/multiformats/go-base36 v0.2.0 // indirect
-	github.com/multiformats/go-multiaddr v0.16.1 // indirect
 	github.com/multiformats/go-multiaddr-dns v0.6.0 // indirect
 	github.com/multiformats/go-multiaddr-fmt v0.1.0 // indirect
 	github.com/multiformats/go-multibase v0.3.0 // indirect
