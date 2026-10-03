@@ -18,7 +18,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	client := client.NewClient(discoveryURL)
+	client, err := client.NewClient(discoveryURL)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	app := &cli.App{
 		Identity:        id,

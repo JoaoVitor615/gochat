@@ -19,7 +19,10 @@ type Client struct {
 	httpClient *http.Client
 }
 
-func NewClient(baseURL string) *Client {
+func NewClient(baseURL string) (*Client, error) {
+	if baseURL == "" {
+		return nil, errors.New("baseURL cannot be empty")
+	}
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{
@@ -28,7 +31,7 @@ func NewClient(baseURL string) *Client {
 				return http.ErrUseLastResponse
 			},
 		},
-	}
+	}, nil
 }
 
 // APIError represents an error response returned by the Discovery API.
