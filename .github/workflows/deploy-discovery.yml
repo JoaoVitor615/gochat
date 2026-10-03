@@ -32,11 +32,33 @@ jobs:
         run: |
           set -euo pipefail
 
-          parameters=$(jq -n --arg dir "$APP_DIR" '{commands: [
+          preflight_script=$(printf 'APP_DIR=%q' "$APP_DIR")
+          preflight_script+=$'\n'
+          preflight_script+=$(printf '%s\n' \
+            'set -eu' \
+            'echo "Preflight: checking EC2 deployment environment"' \
+            'command -v git >/dev/null 2>&1 || { echo "Preflight failed: git is not installed" >&2; exit 1; }' \
+            'command -v docker >/dev/null 2>&1 || { echo "Preflight failed: Docker is not installed" >&2; exit 1; }' \
+            'id ec2-user >/dev/null 2>&1 || { echo "Preflight failed: ec2-user does not exist" >&2; exit 1; }' \
+            'test -d "$APP_DIR" || { echo "Preflight failed: EC2_APP_DIR does not exist: $APP_DIR" >&2; exit 1; }' \
+            'test -f "$APP_DIR/docker-compose.yml" || { echo "Preflight failed: docker-compose.yml not found in $APP_DIR" >&2; exit 1; }' \
+            'sudo -u ec2-user -H git -C "$APP_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "Preflight failed: EC2_APP_DIR is not a Git working tree owned/accessibly by ec2-user" >&2; exit 1; }' \
+            'docker info >/dev/null 2>&1 || { echo "Preflight failed: Docker daemon is not running or inaccessible" >&2; exit 1; }' \
+            'docker compose version || { echo "Preflight failed: Docker Compose is unavailable" >&2; exit 1; }' \
+            'buildx_output=$(docker buildx version 2>&1) || { echo "$buildx_output" >&2; echo "Preflight failed: Docker Buildx is unavailable" >&2; exit 1; }' \
+            'buildx_version=$(printf "%s\n" "$buildx_output" | grep -Eo "v[0-9]+\.[0-9]+\.[0-9]+" | head -n1 | tr -d v)' \
+            'test -n "$buildx_version" || { echo "Preflight failed: could not determine Docker Buildx version" >&2; exit 1; }' \
+            'minimum_version=$(printf "%s\n" "$buildx_version" "0.17.0" | sort -V | head -n1)' \
+            'test "$minimum_version" = "0.17.0" || { echo "Preflight failed: Docker Buildx $buildx_version is too old; version 0.17.0 or later is required" >&2; exit 1; }' \
+            'echo "Preflight passed: Git, Docker, Compose, and Buildx $buildx_version are ready"')
+
+          parameters=$(jq -n --arg dir "$APP_DIR" --arg preflight "$preflight_script" '{commands: [
             "set -eu",
+            $preflight,
             "sudo -u ec2-user -H git -C " + ($dir | @sh) + " fetch origin master",
             "sudo -u ec2-user -H git -C " + ($dir | @sh) + " checkout master",
             "sudo -u ec2-user -H git -C " + ($dir | @sh) + " pull --ff-only origin master",
+            "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " config >/dev/null",
             "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " up -d --build"
           ]}')
 
