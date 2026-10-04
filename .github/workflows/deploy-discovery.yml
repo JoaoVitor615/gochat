@@ -58,6 +58,8 @@ jobs:
             "sudo -u ec2-user -H git -C " + ($dir | @sh) + " fetch origin master",
             "sudo -u ec2-user -H git -C " + ($dir | @sh) + " checkout master",
             "sudo -u ec2-user -H git -C " + ($dir | @sh) + " pull --ff-only origin master",
+            "printf '%s\\n' DISCOVERY_PORT=8080 REDIS_ADDR=redis:6379 > " + (($dir + "/.env.discovery") | @sh),
+            "chmod 600 " + (($dir + "/.env.discovery") | @sh),
             "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " config >/dev/null",
             "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " up -d --build"
           ]}')
