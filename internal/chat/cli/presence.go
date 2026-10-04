@@ -17,7 +17,7 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 		return nil, fmt.Errorf("peer host is already running")
 	}
 
-	h, err := p2p.NewHost(a.Identity, defaultPort)
+	h, err := p2p.NewHostOnFirstAvailablePort(a.Identity)
 	if err != nil {
 		return nil, fmt.Errorf("start peer host: %w", err)
 	}
