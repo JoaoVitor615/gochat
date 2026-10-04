@@ -16,3 +16,8 @@ type AddPeerResponse struct {
 type ResolveInviteReq struct {
 	Code string `json:"code"`
 }
+
+type HeartbeatReq struct {
+	PeerID    string   `json:"peer_id"`
+	Addresses []string `json:"addresses"`
+}
