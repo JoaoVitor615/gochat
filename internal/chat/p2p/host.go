@@ -71,9 +71,8 @@ func NewHost(id *identity.Identity, port int) (host.Host, error) {
 
 	h, err := libp2p.New(
 		libp2p.Identity(privateKey),
-		libp2p.ListenAddrStrings(
-			fmt.Sprintf("/ip4/127.0.0.1/udp/%d/quic-v1", port),
-		),
+		libp2p.ListenAddrStrings(fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic-v1", port)),
+		libp2p.EnableAutoNATv2(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create libp2p host: %w", err)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/JoaoVitor615/gochat/internal/chat/p2p"
+	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
@@ -23,22 +24,14 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 	}
 	a.Host = h
 
-	addresses, err := peer.AddrInfoToP2pAddrs(&peer.AddrInfo{
-		ID:    h.ID(),
-		Addrs: h.Addrs(),
-	})
+	addresses, err := peerAddressStrings(h)
 	if err != nil {
 		_ = h.Close()
 		a.Host = nil
 		return nil, fmt.Errorf("get peer addresses: %w", err)
 	}
 
-	addressStrings := make([]string, len(addresses))
-	for i, address := range addresses {
-		addressStrings[i] = address.String()
-	}
-
-	if err := a.DiscoveryClient.Heartbeat(ctx, a.Identity.PeerID, addressStrings); err != nil {
+	if err := a.DiscoveryClient.Heartbeat(ctx, a.Identity.PeerID, addresses); err != nil {
 		_ = h.Close()
 		a.Host = nil
 		return nil, err
@@ -56,7 +49,11 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 			case <-heartbeatCtx.Done():
 				return
 			case <-ticker.C:
-				if err := a.DiscoveryClient.Heartbeat(heartbeatCtx, a.Identity.PeerID, addressStrings); err != nil && heartbeatCtx.Err() == nil {
+				currentAddresses, err := peerAddressStrings(h)
+				if err == nil {
+					err = a.DiscoveryClient.Heartbeat(heartbeatCtx, a.Identity.PeerID, currentAddresses)
+				}
+				if err != nil && heartbeatCtx.Err() == nil {
 					log.Printf("refresh peer heartbeat: %v", err)
 				}
 			}
@@ -71,4 +68,30 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 		}
 		a.Host = nil
 	}, nil
+}
+
+func peerAddressStrings(h host.Host) ([]string, error) {
+	snapshot, err := p2p.DiscoverHostAddresses(h)
+	if err != nil {
+		return nil, err
+	}
+	addresses, err := peer.AddrInfoToP2pAddrs(&peer.AddrInfo{
+		ID:    h.ID(),
+		Addrs: snapshot.Candidates,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get peer addresses: %w", err)
+	}
+	if len(snapshot.PublicCandidates) == 0 {
+		log.Printf("no public QUIC address observed yet; libp2p candidates will be refreshed on the next heartbeat")
+	}
+	if len(snapshot.ReachablePublic) > 0 {
+		log.Printf("libp2p confirmed %d publicly reachable QUIC address(es)", len(snapshot.ReachablePublic))
+	}
+
+	addressStrings := make([]string, len(addresses))
+	for i, address := range addresses {
+		addressStrings[i] = address.String()
+	}
+	return addressStrings, nil
 }
