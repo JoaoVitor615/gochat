@@ -26,14 +26,6 @@ func New(repository repository.Repository) *Service {
 	return &Service{repository: repository}
 }
 
-func (s *Service) Announce(ctx context.Context, peerID string, addresses []string) error {
-	if err := s.repository.SetPeer(ctx, peerID, addresses); err != nil {
-		return fmt.Errorf("announce peer: %w", err)
-	}
-
-	return nil
-}
-
 func (s *Service) Heartbeat(ctx context.Context, peerID string, addresses []string) error {
 	if err := s.repository.SetPeer(ctx, peerID, addresses); err != nil {
 		return fmt.Errorf("heartbeat peer: %w", err)
