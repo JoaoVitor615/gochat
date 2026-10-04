@@ -4,9 +4,14 @@ import (
 	"context"
 
 	"github.com/JoaoVitor615/gochat/internal/chat/tui"
-	cli "github.com/urfave/cli/v3"
 )
 
-func (a *App) GoChatCommand(_ context.Context, _ *cli.Command) error {
+func (a *App) GoChatCommand(ctx context.Context) error {
+	stopPresence, err := a.startPresence(ctx)
+	if err != nil {
+		return err
+	}
+	defer stopPresence()
+
 	return tui.Run()
 }

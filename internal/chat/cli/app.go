@@ -6,11 +6,13 @@ import (
 
 	"github.com/JoaoVitor615/gochat/internal/chat/client"
 	"github.com/JoaoVitor615/gochat/internal/chat/identity"
+	"github.com/libp2p/go-libp2p/core/host"
 )
 
 type App struct {
 	Identity        *identity.Identity
 	DiscoveryClient *client.Client
+	Host            host.Host
 }
 
 func InitApp() *App {
