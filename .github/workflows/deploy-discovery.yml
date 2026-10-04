@@ -46,11 +46,12 @@ jobs:
             'docker info >/dev/null 2>&1 || { echo "Preflight failed: Docker daemon is not running or inaccessible" >&2; exit 1; }' \
             'docker compose version || { echo "Preflight failed: Docker Compose is unavailable" >&2; exit 1; }' \
             'buildx_output=$(docker buildx version 2>&1) || { echo "$buildx_output" >&2; echo "Preflight failed: Docker Buildx is unavailable" >&2; exit 1; }' \
+            'docker buildx inspect gochat-builder --bootstrap >/dev/null 2>&1 || { echo "Preflight failed: Buildx builder gochat-builder is unavailable" >&2; exit 1; }' \
             'buildx_version=$(printf "%s\n" "$buildx_output" | grep -Eo "v[0-9]+\.[0-9]+\.[0-9]+" | head -n1 | tr -d v)' \
             'test -n "$buildx_version" || { echo "Preflight failed: could not determine Docker Buildx version" >&2; exit 1; }' \
             'minimum_version=$(printf "%s\n" "$buildx_version" "0.17.0" | sort -V | head -n1)' \
             'test "$minimum_version" = "0.17.0" || { echo "Preflight failed: Docker Buildx $buildx_version is too old; version 0.17.0 or later is required" >&2; exit 1; }' \
-            'echo "Preflight passed: Git, Docker, Compose, and Buildx $buildx_version are ready"')
+            'echo "Preflight passed: Git, Docker, Compose, Buildx $buildx_version, and gochat-builder are ready"')
 
           parameters=$(jq -n --arg dir "$APP_DIR" --arg preflight "$preflight_script" '{commands: [
             "set -eu",
@@ -61,7 +62,11 @@ jobs:
             "printf '%s\\n' DISCOVERY_PORT=8080 REDIS_ADDR=redis:6379 > " + (($dir + "/.env.discovery") | @sh),
             "chmod 600 " + (($dir + "/.env.discovery") | @sh),
             "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " config >/dev/null",
-            "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " up -d --build"
+            "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " build --builder gochat-builder --progress=plain discovery",
+            "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " up -d --no-build --force-recreate discovery",
+            "actual_redis_addr=$(docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " exec -T discovery printenv REDIS_ADDR)",
+            "test \"$actual_redis_addr\" = redis:6379 || { echo \"Deploy verification failed: Discovery REDIS_ADDR is '$actual_redis_addr'\" >&2; exit 1; }",
+            "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " exec -T redis redis-cli ping | grep -qx PONG"
           ]}')
 
           command_id=$(aws ssm send-command \
