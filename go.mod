@@ -6,6 +6,7 @@ require (
 	github.com/libp2p/go-libp2p v0.49.0
 	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/redis/go-redis/v9 v9.22.0
+	github.com/joho/godotenv v1.5.1
 	github.com/urfave/cli/v3 v3.11.0
 )
 
