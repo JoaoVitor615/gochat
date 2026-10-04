@@ -77,6 +77,14 @@ func (c *Client) AddPeer(ctx context.Context, inviteCode string) (*AddPeerRespon
 	return &addPeerRes, nil
 }
 
+func (c *Client) Heartbeat(ctx context.Context, peerID string, addresses []string) error {
+	reqBody := &HeartbeatReq{PeerID: peerID, Addresses: addresses}
+	if err := c.doJSON(ctx, http.MethodPost, HEARTBEAT_ENDPOINT, reqBody, nil); err != nil {
+		return fmt.Errorf("heartbeat: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any) error {
 	if c == nil || c.httpClient == nil {
 		return errors.New("discovery client is not initialized")
@@ -114,6 +122,9 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return newAPIError(response.StatusCode, responseBytes)
+	}
+	if responseBody == nil {
+		return nil
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(responseBytes))

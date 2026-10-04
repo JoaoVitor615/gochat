@@ -20,7 +20,6 @@ func NewServer(discoveryService *service.Service) *Server {
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/announce", s.handler.Announce)
 	mux.HandleFunc("/heartbeat", s.handler.Heartbeat)
 	mux.HandleFunc("/invite", s.handler.Invite)
 	mux.HandleFunc("/resolve", s.handler.Resolve)

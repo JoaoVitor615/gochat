@@ -10,14 +10,8 @@ func InitCli(app *App) *cli.Command {
 	return &cli.Command{
 		Name:  "gochat",
 		Usage: "P2P chat from your terminal",
-		Flags: []cli.Flag{
-			&cli.IntFlag{
-				Name:  FLAG_PORT,
-				Value: 5000,
-			},
-		},
-		Action: func(ctx context.Context, cmd *cli.Command) error {
-			return app.GoChatCommand(ctx, cmd)
+		Action: func(ctx context.Context, _ *cli.Command) error {
+			return app.GoChatCommand(ctx)
 		},
 		Commands: []*cli.Command{
 			{

@@ -20,7 +20,7 @@ type Handler struct {
 	service *service.Service
 }
 
-type announceRequest struct {
+type peerRequest struct {
 	PeerID    string   `json:"peer_id"`
 	Addresses []string `json:"addresses"`
 }
@@ -53,24 +53,6 @@ func New(discoveryService *service.Service) *Handler {
 
 func (h *Handler) NotFound(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotFound, "route not found")
-}
-
-func (h *Handler) Announce(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) {
-		return
-	}
-
-	req, ok := decodePeerRequest(w, r)
-	if !ok {
-		return
-	}
-
-	if err := h.service.Announce(r.Context(), req.PeerID, req.Addresses); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal server error")
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) Heartbeat(w http.ResponseWriter, r *http.Request) {
@@ -147,23 +129,23 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func decodePeerRequest(w http.ResponseWriter, r *http.Request) (announceRequest, bool) {
-	var req announceRequest
+func decodePeerRequest(w http.ResponseWriter, r *http.Request) (peerRequest, bool) {
+	var req peerRequest
 	if !decodeJSON(w, r, &req) {
-		return announceRequest{}, false
+		return peerRequest{}, false
 	}
 	if !validPeerID(req.PeerID) {
 		writeError(w, http.StatusBadRequest, "invalid peer_id")
-		return announceRequest{}, false
+		return peerRequest{}, false
 	}
 	if len(req.Addresses) == 0 || len(req.Addresses) > maxPeerAddresses {
 		writeError(w, http.StatusBadRequest, "addresses must contain between 1 and 16 entries")
-		return announceRequest{}, false
+		return peerRequest{}, false
 	}
 	for _, address := range req.Addresses {
 		if _, err := multiaddr.NewMultiaddr(address); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid address")
-			return announceRequest{}, false
+			return peerRequest{}, false
 		}
 	}
 

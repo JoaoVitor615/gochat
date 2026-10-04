@@ -1,3 +1,3 @@
 package cli
 
-var FLAG_PORT = "port"
+const defaultPort = 5000
