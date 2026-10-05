@@ -13,5 +13,5 @@ func (a *App) GoChatCommand(ctx context.Context) error {
 	}
 	defer stopPresence()
 
-	return tui.Run(ctx, a.Identity.PeerID, a.DiscoveryClient)
+	return tui.Run(ctx, a.Identity.PeerID, a.DiscoveryClient, a.Store)
 }

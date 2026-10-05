@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/JoaoVitor615/gochat/internal/chat/client"
+	"github.com/JoaoVitor615/gochat/internal/chat/storage"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -18,9 +20,17 @@ type PeerAPI interface {
 	AddPeer(context.Context, string) (*client.AddPeerResponse, error)
 }
 
+// PeerStore is the local contact persistence needed by the TUI.
+type PeerStore interface {
+	ListPeers(context.Context) ([]storage.Peer, error)
+	SavePeer(context.Context, storage.Peer) error
+}
+
 type peer struct {
-	id        string
-	addresses []string
+	id          string
+	displayName string
+	addresses   []string
+	lastSeenAt  time.Time
 }
 
 type panel uint8
@@ -32,19 +42,20 @@ const (
 )
 
 type model struct {
-	ctx      context.Context
-	api      PeerAPI
-	localID  string
-	width    int
-	height   int
-	selected int
-	active   int
-	panel    panel
-	code     string
-	invite   string
-	loading  bool
-	errText  string
-	peers    []peer
+	ctx       context.Context
+	api       PeerAPI
+	peerStore PeerStore
+	localID   string
+	width     int
+	height    int
+	selected  int
+	active    int
+	panel     panel
+	code      string
+	invite    string
+	loading   bool
+	errText   string
+	peers     []peer
 }
 
 type inviteResult struct {
@@ -53,8 +64,10 @@ type inviteResult struct {
 }
 
 type addPeerResult struct {
-	peer *client.AddPeerResponse
-	err  error
+	peer           *client.AddPeerResponse
+	err            error
+	persistenceErr error
+	lastSeenAt     time.Time
 }
 
 var (
@@ -72,9 +85,19 @@ var (
 )
 
 // Run opens the chat TUI and keeps peer operations tied to the app context.
-func Run(ctx context.Context, localPeerID string, api PeerAPI) error {
-	initial := model{ctx: ctx, api: api, localID: localPeerID, active: -1}
-	_, err := tea.NewProgram(initial, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+func Run(ctx context.Context, localPeerID string, api PeerAPI, peerStore PeerStore) error {
+	savedPeers, err := peerStore.ListPeers(ctx)
+	if err != nil {
+		return fmt.Errorf("load saved peers: %w", err)
+	}
+	initial := model{ctx: ctx, api: api, peerStore: peerStore, localID: localPeerID, active: -1}
+	for _, saved := range savedPeers {
+		initial.peers = append(initial.peers, peer{
+			id: saved.PeerID, displayName: saved.DisplayName,
+			addresses: saved.Addresses, lastSeenAt: saved.LastSeenAt,
+		})
+	}
+	_, err = tea.NewProgram(initial, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
 	return err
 }
 
@@ -97,11 +120,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errText = "A API não retornou o ID do peer."
 			return m, nil
 		}
-		if !m.hasPeer(msg.peer.PeerID) {
-			m.peers = append(m.peers, peer{id: msg.peer.PeerID, addresses: msg.peer.Addresses})
-		}
-		m.selected = len(m.peers) - 1
+		m.upsertPeer(peer{
+			id: msg.peer.PeerID, addresses: msg.peer.Addresses,
+			lastSeenAt: msg.lastSeenAt,
+		})
+		m.selected = m.peerIndex(msg.peer.PeerID)
 		m.active = m.selected
+		if msg.persistenceErr != nil {
+			m.errText = fmt.Sprintf("Peer adicionado nesta sessão, mas não salvo localmente: %v", msg.persistenceErr)
+			return m, nil
+		}
 		m.panel, m.code, m.errText = noPanel, "", ""
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -194,17 +222,37 @@ func (m model) createInviteCmd() tea.Cmd {
 func (m model) addPeerCmd(code string) tea.Cmd {
 	return func() tea.Msg {
 		response, err := m.api.AddPeer(m.ctx, code)
-		return addPeerResult{peer: response, err: err}
+		result := addPeerResult{peer: response, err: err}
+		if err != nil || response == nil || response.PeerID == "" {
+			return result
+		}
+		result.lastSeenAt = time.Now().UTC()
+		result.persistenceErr = m.peerStore.SavePeer(m.ctx, storage.Peer{
+			PeerID: response.PeerID, AddedAt: result.lastSeenAt,
+			LastSeenAt: result.lastSeenAt, Addresses: response.Addresses,
+		})
+		return result
 	}
 }
 
-func (m model) hasPeer(peerID string) bool {
-	for _, existing := range m.peers {
+func (m *model) upsertPeer(updated peer) {
+	if index := m.peerIndex(updated.id); index >= 0 {
+		if updated.displayName == "" {
+			updated.displayName = m.peers[index].displayName
+		}
+		m.peers[index] = updated
+		return
+	}
+	m.peers = append(m.peers, updated)
+}
+
+func (m model) peerIndex(peerID string) int {
+	for index, existing := range m.peers {
 		if existing.id == peerID {
-			return true
+			return index
 		}
 	}
-	return false
+	return -1
 }
 
 func (m model) View() string {
@@ -248,14 +296,18 @@ func (m model) sidebar(width, height int) []string {
 		if row+1 >= height-2 {
 			break
 		}
-		label := "  " + onlineStyle.Render("●") + " " + shortPeerID(p.id)
+		name := p.displayName
+		if name == "" {
+			name = shortPeerID(p.id)
+		}
+		label := "  " + mutedStyle.Render("○") + " " + name
 		if m.selected == i {
-			label = selectedStyle.Render(" › ● " + shortPeerID(p.id) + " ")
+			label = selectedStyle.Render(" › ○ " + name + " ")
 		} else {
 			label = peerStyle.Render(label)
 		}
 		rows[row] = label
-		rows[row+1] = mutedStyle.Render("    adicionado")
+		rows[row+1] = mutedStyle.Render("    " + peerLastSeen(p.lastSeenAt))
 	}
 	rows[height-2] = mutedStyle.Render("  + Adicionar [a]")
 	return rows
@@ -274,7 +326,7 @@ func (m model) mainArea(width, height int) []string {
 	}
 	p := m.peers[m.active]
 	rows[0] = "  " + titleStyle.Render(shortPeerID(p.id))
-	rows[1] = "  " + onlineStyle.Render("● online no momento em que o convite foi aceito")
+	rows[1] = "  " + mutedStyle.Render(peerLastSeen(p.lastSeenAt))
 	rows[2] = borderStyle.Render(strings.Repeat("─", width))
 	rows[4] = "  " + mutedStyle.Render("Peer ID")
 	rows[5] = "  " + peerStyle.Render(ansi.Truncate(p.id, width-4, "…"))
@@ -288,7 +340,7 @@ func (m model) mainArea(width, height int) []string {
 			rows[row] = "  " + peerStyle.Render(ansi.Truncate(address, width-4, "…"))
 		}
 	}
-	rows[height-2] = mutedStyle.Render("  Peer salvo apenas durante esta sessão do TUI.")
+	rows[height-2] = mutedStyle.Render("  Peer salvo localmente neste dispositivo.")
 	return rows
 }
 
@@ -352,6 +404,13 @@ func shortPeerID(id string) string {
 		return id
 	}
 	return id[:8] + "…" + id[len(id)-6:]
+}
+
+func peerLastSeen(lastSeenAt time.Time) string {
+	if lastSeenAt.IsZero() {
+		return "presença não verificada"
+	}
+	return "visto via Discovery " + lastSeenAt.Local().Format("02/01 15:04")
 }
 
 func frameLine(value string, width int) string {
