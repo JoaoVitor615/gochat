@@ -1,52 +1,26 @@
-// Package tui contains the terminal-only chat mock. No peer or message data is
-// loaded from the network yet.
+// Package tui implements the interactive terminal interface for gochat.
 package tui
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
+	"github.com/JoaoVitor615/gochat/internal/chat/client"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
-type message struct {
-	author string
-	time   string
-	text   string
-	owned  bool
+// PeerAPI is the Discovery API functionality needed by the TUI.
+type PeerAPI interface {
+	CreateInvite(context.Context, string) (*client.CreateInviteResponse, error)
+	AddPeer(context.Context, string) (*client.AddPeerResponse, error)
 }
 
 type peer struct {
-	name     string
-	code     string
-	online   bool
-	unread   string
-	messages []message
-}
-
-var peers = []peer{
-	{
-		name: "Maria", code: "12D-7AF-P92", online: true, unread: "2 mensagens",
-		messages: []message{
-			{author: "Maria", time: "14:28", text: "Oi! Conseguiu testar o projeto?"},
-			{author: "Você", time: "14:30", text: "Sim, está funcionando!", owned: true},
-			{author: "Maria", time: "14:31", text: "Perfeito 👌"},
-		},
-	},
-	{
-		name: "João", code: "7AA-45C-N21", online: false,
-		messages: []message{
-			{author: "João", time: "Ontem", text: "Vamos conversar depois?"},
-			{author: "Você", time: "Ontem", text: "Claro!", owned: true},
-		},
-	},
-	{
-		name: "Pedro", code: "90K-2BB-L83", online: true,
-		messages: []message{
-			{author: "Pedro", time: "13:05", text: "Oi! Tudo bem por aí?"},
-		},
-	},
+	id        string
+	addresses []string
 }
 
 type panel uint8
@@ -58,12 +32,29 @@ const (
 )
 
 type model struct {
+	ctx      context.Context
+	api      PeerAPI
+	localID  string
 	width    int
 	height   int
 	selected int
 	active   int
 	panel    panel
 	code     string
+	invite   string
+	loading  bool
+	errText  string
+	peers    []peer
+}
+
+type inviteResult struct {
+	code string
+	err  error
+}
+
+type addPeerResult struct {
+	peer *client.AddPeerResponse
+	err  error
 }
 
 var (
@@ -80,9 +71,10 @@ var (
 	borderStyle   = lipgloss.NewStyle().Foreground(muted)
 )
 
-// Run opens the visual mock in the terminal alternate screen.
-func Run() error {
-	_, err := tea.NewProgram(model{active: -1}, tea.WithAltScreen()).Run()
+// Run opens the chat TUI and keeps peer operations tied to the app context.
+func Run(ctx context.Context, localPeerID string, api PeerAPI) error {
+	initial := model{ctx: ctx, api: api, localID: localPeerID, active: -1}
+	_, err := tea.NewProgram(initial, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
 	return err
 }
 
@@ -92,32 +84,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+	case inviteResult:
+		m.loading = false
+		m.invite, m.errText = msg.code, errorText(msg.err)
+	case addPeerResult:
+		m.loading = false
+		if msg.err != nil {
+			m.errText = msg.err.Error()
+			return m, nil
+		}
+		if msg.peer == nil || msg.peer.PeerID == "" {
+			m.errText = "A API não retornou o ID do peer."
+			return m, nil
+		}
+		if !m.hasPeer(msg.peer.PeerID) {
+			m.peers = append(m.peers, peer{id: msg.peer.PeerID, addresses: msg.peer.Addresses})
+		}
+		m.selected = len(m.peers) - 1
+		m.active = m.selected
+		m.panel, m.code, m.errText = noPanel, "", ""
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
 		if m.panel == addPanel {
-			switch msg.String() {
-			case "esc":
-				m.panel, m.code = noPanel, ""
-			case "backspace", "ctrl+h":
-				if len(m.code) > 0 {
-					m.code = m.code[:len(m.code)-1]
-				}
-			default:
-				if msg.Type == tea.KeyRunes {
-					for _, char := range strings.ToUpper(string(msg.Runes)) {
-						if len(m.code) < 24 && ((char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '-') {
-							m.code += string(char)
-						}
-					}
-				}
-			}
-			return m, nil
+			return m.updateAddPanel(msg)
 		}
 		if m.panel == invitePanel {
-			if msg.String() == "esc" {
+			switch msg.String() {
+			case "esc":
 				m.panel = noPanel
+			case "r":
+				m.loading, m.errText, m.invite = true, "", ""
+				return m, m.createInviteCmd()
 			}
 			return m, nil
 		}
@@ -130,20 +129,82 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected--
 			}
 		case "down", "j":
-			if m.selected < len(peers)-1 {
+			if m.selected < len(m.peers)-1 {
 				m.selected++
 			}
 		case "enter":
-			m.active = m.selected
+			if m.selected >= 0 && m.selected < len(m.peers) {
+				m.active = m.selected
+			}
 		case "esc":
 			m.active = -1
 		case "a":
-			m.panel, m.code = addPanel, ""
+			m.panel, m.code, m.errText = addPanel, "", ""
 		case "i":
-			m.panel = invitePanel
+			m.panel, m.invite, m.errText, m.loading = invitePanel, "", "", true
+			return m, m.createInviteCmd()
 		}
 	}
 	return m, nil
+}
+
+func (m model) updateAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.panel, m.code, m.errText = noPanel, "", ""
+	case "enter":
+		code := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(m.code)), "-", "")
+		if len(code) != 9 {
+			m.errText = "O código deve conter 9 caracteres."
+			return m, nil
+		}
+		m.loading, m.errText = true, ""
+		return m, m.addPeerCmd(code)
+	case "backspace", "ctrl+h":
+		if len(m.code) > 0 && !m.loading {
+			m.code = m.code[:len(m.code)-1]
+		}
+	default:
+		if !m.loading && msg.Type == tea.KeyRunes {
+			for _, char := range strings.ToUpper(string(msg.Runes)) {
+				if (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') {
+					if len(m.code) < 9 {
+						m.code += string(char)
+					}
+				}
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m model) createInviteCmd() tea.Cmd {
+	return func() tea.Msg {
+		response, err := m.api.CreateInvite(m.ctx, m.localID)
+		if err != nil {
+			return inviteResult{err: err}
+		}
+		if response == nil {
+			return inviteResult{err: fmt.Errorf("a API não retornou um código de convite")}
+		}
+		return inviteResult{code: response.Code}
+	}
+}
+
+func (m model) addPeerCmd(code string) tea.Cmd {
+	return func() tea.Msg {
+		response, err := m.api.AddPeer(m.ctx, code)
+		return addPeerResult{peer: response, err: err}
+	}
+}
+
+func (m model) hasPeer(peerID string) bool {
+	for _, existing := range m.peers {
+		if existing.id == peerID {
+			return true
+		}
+	}
+	return false
 }
 
 func (m model) View() string {
@@ -161,19 +222,18 @@ func (m model) View() string {
 
 	var rows []string
 	rows = append(rows, borderStyle.Render("┌─ gochat "+strings.Repeat("─", m.width-11)+"┐"))
-	rows = append(rows, frameLine(" "+titleStyle.Render("gochat")+"   "+mutedStyle.Render("conversas"), innerWidth))
+	rows = append(rows, frameLine(" "+titleStyle.Render("gochat")+"   "+mutedStyle.Render("peers"), innerWidth))
 	rows = append(rows, borderStyle.Render("├"+strings.Repeat("─", sideWidth)+"┬"+strings.Repeat("─", mainWidth)+"┤"))
 
-	side := m.sidebar(sideWidth, bodyHeight)
-	main := m.mainArea(mainWidth, bodyHeight)
+	side, main := m.sidebar(sideWidth, bodyHeight), m.mainArea(mainWidth, bodyHeight)
 	for i := 0; i < bodyHeight; i++ {
 		rows = append(rows, borderStyle.Render("│")+fit(side[i], sideWidth)+borderStyle.Render("│")+fit(main[i], mainWidth)+borderStyle.Render("│"))
 	}
 
 	rows = append(rows, borderStyle.Render("├"+strings.Repeat("─", sideWidth)+"┴"+strings.Repeat("─", mainWidth)+"┤"))
-	footer := " ↑↓/j k navegar  ·  enter abrir  ·  a adicionar  ·  i convite  ·  q sair"
+	footer := " ↑↓/j k navegar  ·  enter abrir  ·  a adicionar  ·  i convidar  ·  q sair"
 	if m.panel != noPanel {
-		footer = " esc fechar  ·  interface demonstrativa"
+		footer = " esc fechar  ·  convites expiram após 10 minutos"
 	}
 	rows = append(rows, frameLine(mutedStyle.Render(footer), innerWidth))
 	rows = append(rows, borderStyle.Render("└"+strings.Repeat("─", innerWidth)+"┘"))
@@ -183,33 +243,21 @@ func (m model) View() string {
 func (m model) sidebar(width, height int) []string {
 	rows := make([]string, height)
 	rows[0] = "  " + titleStyle.Render("PEERS")
-	for i, peer := range peers {
+	for i, p := range m.peers {
 		row := 2 + i*3
 		if row+1 >= height-2 {
 			break
 		}
-		marker := onlineStyle.Render("●")
-		if !peer.online {
-			marker = mutedStyle.Render("○")
-		}
-		label := "  " + marker + " " + peer.name
+		label := "  " + onlineStyle.Render("●") + " " + shortPeerID(p.id)
 		if m.selected == i {
-			label = selectedStyle.Render(" › " + symbol(peer.online) + " " + peer.name + " ")
+			label = selectedStyle.Render(" › ● " + shortPeerID(p.id) + " ")
 		} else {
 			label = peerStyle.Render(label)
 		}
 		rows[row] = label
-		detail := peer.unread
-		if detail == "" {
-			if peer.online {
-				detail = "online"
-			} else {
-				detail = "offline"
-			}
-		}
-		rows[row+1] = mutedStyle.Render("    " + detail)
+		rows[row+1] = mutedStyle.Render("    adicionado")
 	}
-	rows[height-2] = mutedStyle.Render("  + Adicionar peer  [a]")
+	rows[height-2] = mutedStyle.Render("  + Adicionar [a]")
 	return rows
 }
 
@@ -217,42 +265,30 @@ func (m model) mainArea(width, height int) []string {
 	if m.panel != noPanel {
 		return m.dialog(width, height)
 	}
-
 	rows := make([]string, height)
-	if m.active < 0 {
+	if m.active < 0 || m.active >= len(m.peers) {
 		middle := height / 2
-		rows[middle-1] = center(titleStyle.Render("Selecione um peer"), width)
-		rows[middle+1] = center(mutedStyle.Render("↑↓ para navegar · enter para abrir"), width)
+		rows[middle-2] = center(titleStyle.Render("Nenhum peer aberto"), width)
+		rows[middle] = center(mutedStyle.Render("Use [i] para criar convite ou [a] para adicionar"), width)
 		return rows
 	}
-
-	peer := peers[m.active]
-	rows[0] = "  " + titleStyle.Render(peer.name)
-	status := "offline"
-	if peer.online {
-		status = onlineStyle.Render("● online")
-	}
-	rows[1] = "  " + status + mutedStyle.Render("  ·  "+peer.code)
+	p := m.peers[m.active]
+	rows[0] = "  " + titleStyle.Render(shortPeerID(p.id))
+	rows[1] = "  " + onlineStyle.Render("● online no momento em que o convite foi aceito")
 	rows[2] = borderStyle.Render(strings.Repeat("─", width))
-	rows[height-3] = borderStyle.Render(strings.Repeat("─", width))
-	rows[height-2] = mutedStyle.Render("  Digite uma mensagem...  (mock)")
-
-	row := 4
-	for _, message := range peer.messages {
-		if row+2 >= height-3 {
-			break
+	rows[4] = "  " + mutedStyle.Render("Peer ID")
+	rows[5] = "  " + peerStyle.Render(ansi.Truncate(p.id, width-4, "…"))
+	if len(p.addresses) > 0 {
+		rows[7] = "  " + mutedStyle.Render("Endereços anunciados")
+		for i, address := range p.addresses {
+			row := 8 + i
+			if row >= height-2 {
+				break
+			}
+			rows[row] = "  " + peerStyle.Render(ansi.Truncate(address, width-4, "…"))
 		}
-		heading := message.author + "  " + message.time
-		body := message.text
-		if message.owned {
-			rows[row] = right(mutedStyle.Render(heading), width, 2)
-			rows[row+1] = right(peerStyle.Render(body), width, 2)
-		} else {
-			rows[row] = "  " + mutedStyle.Render(heading)
-			rows[row+1] = "  " + peerStyle.Render(body)
-		}
-		row += 3
 	}
+	rows[height-2] = mutedStyle.Render("  Peer salvo apenas durante esta sessão do TUI.")
 	return rows
 }
 
@@ -263,29 +299,33 @@ func (m model) dialog(width, height int) []string {
 	if m.panel == addPanel {
 		field := m.code
 		if field == "" {
-			field = "88B-11A-KXL"
+			field = "ABC123XYZ"
+		}
+		if len(field) > 6 {
+			field = field[:3] + "-" + field[3:6] + "-" + field[6:]
 		}
 		field = ansi.Truncate(field, boxWidth-8, "…")
-		instructions := "enter adicionar · esc fechar"
-		if width < 45 {
-			instructions = "esc fechar · mock"
+		instruction := "digite o código · enter adicionar"
+		if m.loading {
+			instruction = "consultando convite…"
 		}
-		content = []string{
-			titleStyle.Render("ADICIONAR PEER"), "", "Código do peer", "",
-			lipgloss.NewStyle().Foreground(accent).Render("[ " + field + " ]"), "",
-			mutedStyle.Render(instructions),
-		}
+		content = []string{titleStyle.Render("ADICIONAR PEER"), "", "Código de convite", "", lipgloss.NewStyle().Foreground(accent).Render("[ " + field + " ]"), "", mutedStyle.Render(instruction)}
 	} else {
-		instructions := "c copiar · r gerar outro · esc fechar"
-		if width < 45 {
-			instructions = "esc fechar · mock"
+		code := "gerando convite…"
+		if !m.loading {
+			code = m.invite
+			if code == "" && m.errText != "" {
+				code = "—"
+			}
 		}
-		content = []string{
-			titleStyle.Render("SEU CONVITE"), "", "Compartilhe este código:", "",
-			center(titleStyle.Render("3FK-92Q-M1Z"), boxWidth-4), "",
-			center(mutedStyle.Render("Expira em 09:42"), boxWidth-4), "",
-			mutedStyle.Render(instructions),
+		instruction := "compartilhe o código · r novo · esc fechar"
+		if m.loading {
+			instruction = "aguarde a resposta da API…"
 		}
+		content = []string{titleStyle.Render("SEU CONVITE"), "", "Compartilhe este código:", "", center(titleStyle.Render(code), boxWidth-4), "", center(mutedStyle.Render("válido por 10 minutos"), boxWidth-4), "", mutedStyle.Render(instruction)}
+	}
+	if m.errText != "" {
+		content = append(content, lipgloss.NewStyle().Foreground(lipgloss.Color("#F87171")).Render(ansi.Truncate(m.errText, boxWidth-6, "…")))
 	}
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(accent).
 		Padding(1, 2).Width(boxWidth - 2).Render(strings.Join(content, "\n"))
@@ -300,11 +340,18 @@ func (m model) dialog(width, height int) []string {
 	return rows
 }
 
-func symbol(online bool) string {
-	if online {
-		return "●"
+func errorText(err error) string {
+	if err == nil {
+		return ""
 	}
-	return "○"
+	return err.Error()
+}
+
+func shortPeerID(id string) string {
+	if len(id) <= 16 {
+		return id
+	}
+	return id[:8] + "…" + id[len(id)-6:]
 }
 
 func frameLine(value string, width int) string {
@@ -321,8 +368,4 @@ func fit(value string, width int) string {
 
 func center(value string, width int) string {
 	return strings.Repeat(" ", max(0, (width-lipgloss.Width(value))/2)) + value
-}
-
-func right(value string, width, padding int) string {
-	return strings.Repeat(" ", max(0, width-padding-lipgloss.Width(value))) + value
 }
