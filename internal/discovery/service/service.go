@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"unicode"
 
 	"github.com/JoaoVitor615/gochat/internal/discovery/repository"
 )
@@ -48,6 +50,11 @@ func (s *Service) CreateInvite(ctx context.Context, peerID string) (string, erro
 }
 
 func (s *Service) ResolveInvite(ctx context.Context, code string) (ResolvedPeer, error) {
+	code, ok := normalizeInviteCode(code)
+	if !ok {
+		return ResolvedPeer{}, ErrInvalidInvite
+	}
+
 	peerID, err := s.repository.GetAndDeleteInvite(ctx, code)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -65,4 +72,25 @@ func (s *Service) ResolveInvite(ctx context.Context, code string) (ResolvedPeer,
 	}
 
 	return ResolvedPeer{PeerID: peerID, Addresses: addresses}, nil
+}
+
+func normalizeInviteCode(code string) (string, bool) {
+	var token strings.Builder
+	token.Grow(9)
+	for _, char := range strings.TrimSpace(code) {
+		if char == '-' || unicode.IsSpace(char) {
+			continue
+		}
+		char = unicode.ToUpper(char)
+		if (char < 'A' || char > 'Z') && (char < '0' || char > '9') {
+			return "", false
+		}
+		token.WriteRune(char)
+	}
+	if token.Len() != 9 {
+		return "", false
+	}
+
+	value := token.String()
+	return fmt.Sprintf("%s-%s-%s", value[:3], value[3:6], value[6:]), true
 }
