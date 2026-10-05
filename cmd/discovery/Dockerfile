@@ -19,5 +19,6 @@ WORKDIR /app
 COPY --from=builder /app/discovery .
 
 EXPOSE 8080
+EXPOSE 4001/udp
 
 CMD ["./discovery"]

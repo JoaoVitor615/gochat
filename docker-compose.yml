@@ -13,5 +13,10 @@ services:
       - .env.discovery
     ports:
       - "8080:8080"
+      - "4001:4001/udp"
+    volumes:
+      - observer_data:/var/lib/gochat-observer
     depends_on:
       - redis
+volumes:
+  observer_data:

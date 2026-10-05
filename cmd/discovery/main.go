@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/JoaoVitor615/gochat/internal/discovery"
+	"github.com/JoaoVitor615/gochat/internal/discovery/observation"
 	"github.com/JoaoVitor615/gochat/internal/discovery/repository"
 	"github.com/JoaoVitor615/gochat/internal/discovery/service"
 )
@@ -24,6 +25,22 @@ func main() {
 
 	redisRepository := repository.NewRedis(redisAddr)
 	defer redisRepository.Close()
+
+	addressObserver, err := observation.New(os.Getenv("DISCOVERY_OBSERVER_ADVERTISE_ADDR"), "/var/lib/gochat-observer")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer addressObserver.Close()
+	if addressObserver.Enabled() {
+		log.Printf("libp2p address observer listening on UDP %d", observation.DefaultListenPort)
+		if observerAddress, err := addressObserver.Address(); err != nil {
+			log.Printf("could not determine observer address: %v", err)
+		} else {
+			log.Printf("libp2p address observer ready at %s", observerAddress)
+		}
+	} else {
+		log.Printf("libp2p address observer disabled: DISCOVERY_OBSERVER_ADVERTISE_ADDR is empty")
+	}
 
 	server := discovery.NewServer(service.New(redisRepository))
 
