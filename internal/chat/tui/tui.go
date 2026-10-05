@@ -31,6 +31,7 @@ type PeerStore interface {
 
 type MessageSender interface {
 	Send(context.Context, string, string) (messaging.SendResult, error)
+	AddPeerAddresses(string, []string) error
 }
 
 type peer struct {
@@ -430,6 +431,14 @@ func (m model) addPeerCmd(code string) tea.Cmd {
 		response, err := m.api.AddPeer(m.ctx, code)
 		result := addPeerResult{peer: response, err: err}
 		if err != nil || response == nil || response.PeerID == "" {
+			return result
+		}
+		if m.sender == nil {
+			result.err = fmt.Errorf("serviço de conexão P2P não está disponível")
+			return result
+		}
+		if err := m.sender.AddPeerAddresses(response.PeerID, response.Addresses); err != nil {
+			result.err = fmt.Errorf("registrar endereços do peer: %w", err)
 			return result
 		}
 		result.lastSeenAt = time.Now().UTC()

@@ -56,6 +56,16 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 
 	messenger := messaging.New(h, a.Identity.PeerID, a.Store)
 	a.Messenger = messenger
+	savedPeers, err := a.Store.ListPeers(ctx)
+	if err != nil {
+		log.Printf("load saved peer addresses into libp2p: %v", err)
+	} else {
+		for _, savedPeer := range savedPeers {
+			if err := messenger.AddPeerAddresses(savedPeer.PeerID, savedPeer.Addresses); err != nil {
+				log.Printf("register saved peer %s addresses: %v", savedPeer.PeerID, err)
+			}
+		}
+	}
 	peerNotifications := &network.NotifyBundle{
 		ConnectedF: func(_ network.Network, connection network.Conn) {
 			remotePeerID := connection.RemotePeer().String()

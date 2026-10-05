@@ -16,6 +16,8 @@ import (
 	"github.com/JoaoVitor615/gochat/internal/chat/storage"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/peerstore"
+	ma "github.com/multiformats/go-multiaddr"
 )
 
 const maxMessageContentBytes = 60 * 1024
@@ -45,6 +47,44 @@ func New(h host.Host, localPeerID string, store storage.Repository) *Service {
 		host: h, localPeerID: localPeerID, store: store,
 		peerLocks: make(map[string]*sync.Mutex),
 	}
+}
+
+// AddPeerAddresses registers Discovery-provided addresses in libp2p's
+// peerstore so NewStream can dial the peer by its PeerID.
+func (s *Service) AddPeerAddresses(peerIDString string, addressStrings []string) error {
+	if s == nil || s.host == nil {
+		return errors.New("register peer addresses: P2P host is not running")
+	}
+	peerID, err := peer.Decode(peerIDString)
+	if err != nil {
+		return fmt.Errorf("register peer addresses: invalid peer ID: %w", err)
+	}
+	if len(addressStrings) == 0 {
+		return errors.New("register peer addresses: at least one address is required")
+	}
+
+	addresses := make([]ma.Multiaddr, 0, len(addressStrings))
+	for _, addressString := range addressStrings {
+		address, err := ma.NewMultiaddr(addressString)
+		if err != nil {
+			return fmt.Errorf("register peer addresses: invalid multiaddr %q: %w", addressString, err)
+		}
+		info, err := peer.AddrInfoFromP2pAddr(address)
+		if err != nil {
+			return fmt.Errorf("register peer addresses: address %q must include a peer ID: %w", addressString, err)
+		}
+		if info.ID != peerID {
+			return fmt.Errorf("register peer addresses: address peer ID %s does not match contact %s", info.ID, peerID)
+		}
+		addresses = append(addresses, info.Addrs...)
+	}
+	if len(addresses) == 0 {
+		return errors.New("register peer addresses: no dialable addresses were provided")
+	}
+
+	s.host.Peerstore().ClearAddrs(peerID)
+	s.host.Peerstore().AddAddrs(peerID, addresses, peerstore.PermanentAddrTTL)
+	return nil
 }
 
 // Send persists the message and outbox entry atomically before attempting
