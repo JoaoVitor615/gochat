@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/JoaoVitor615/gochat/internal/discovery/observation"
 	"github.com/JoaoVitor615/gochat/internal/discovery/service"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
@@ -17,7 +18,8 @@ const (
 )
 
 type Handler struct {
-	service *service.Service
+	service  *service.Service
+	observer *observation.Observer
 }
 
 type peerRequest struct {
@@ -42,13 +44,17 @@ type resolveResponse struct {
 	Addresses []string `json:"addresses"`
 }
 
+type observerResponse struct {
+	Address string `json:"address"`
+}
+
 type errorResponse struct {
 	Status  int    `json:"status"`
 	Message string `json:"message"`
 }
 
-func New(discoveryService *service.Service) *Handler {
-	return &Handler{service: discoveryService}
+func New(discoveryService *service.Service, addressObserver *observation.Observer) *Handler {
+	return &Handler{service: discoveryService, observer: addressObserver}
 }
 
 func (h *Handler) NotFound(w http.ResponseWriter, r *http.Request) {
@@ -127,6 +133,28 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		PeerID:    resolvedPeer.PeerID,
 		Addresses: resolvedPeer.Addresses,
 	})
+}
+
+// Observer returns the public libp2p multiaddress of the address observer.
+// It contains connectivity metadata only and never carries chat messages.
+func (h *Handler) Observer(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	if h.observer == nil || !h.observer.Enabled() {
+		writeError(w, http.StatusServiceUnavailable, "public address observer is not configured")
+		return
+	}
+	address, err := h.observer.Address()
+	if err != nil {
+		if errors.Is(err, observation.ErrUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, "public address observer is not configured")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "could not get observer address")
+		return
+	}
+	writeJSON(w, http.StatusOK, observerResponse{Address: address})
 }
 
 func decodePeerRequest(w http.ResponseWriter, r *http.Request) (peerRequest, bool) {

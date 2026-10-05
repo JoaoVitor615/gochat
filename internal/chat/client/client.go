@@ -85,26 +85,40 @@ func (c *Client) Heartbeat(ctx context.Context, peerID string, addresses []strin
 	return nil
 }
 
+func (c *Client) GetObserver(ctx context.Context) (*ObserverInfo, error) {
+	var observerInfo ObserverInfo
+	if err := c.doJSON(ctx, http.MethodGet, OBSERVER_ENDPOINT, nil, &observerInfo); err != nil {
+		return nil, fmt.Errorf("get public address observer: %w", err)
+	}
+	return &observerInfo, nil
+}
+
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any) error {
 	if c == nil || c.httpClient == nil {
 		return errors.New("discovery client is not initialized")
 	}
 
-	requestBytes, err := json.Marshal(requestBody)
-	if err != nil {
-		return fmt.Errorf("encode request: %w", err)
+	var requestReader io.Reader
+	if requestBody != nil {
+		requestBytes, err := json.Marshal(requestBody)
+		if err != nil {
+			return fmt.Errorf("encode request: %w", err)
+		}
+		requestReader = bytes.NewReader(requestBytes)
 	}
 
 	request, err := http.NewRequestWithContext(
 		ctx,
 		method,
 		c.baseURL+endpoint,
-		bytes.NewReader(requestBytes),
+		requestReader,
 	)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
-	request.Header.Set("Content-Type", "application/json")
+	if requestBody != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {

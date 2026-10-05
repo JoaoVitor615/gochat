@@ -21,3 +21,7 @@ type HeartbeatReq struct {
 	PeerID    string   `json:"peer_id"`
 	Addresses []string `json:"addresses"`
 }
+
+type ObserverInfo struct {
+	Address string `json:"address"`
+}
