@@ -303,8 +303,8 @@ func (s *BboltStore) GetMessage(ctx context.Context, messageID string) (StoredMe
 }
 
 // ListMessages returns the newest page strictly before before, in chronological order.
-// A zero before value starts at the newest message. A non-positive limit uses 50.
-func (s *BboltStore) ListMessages(ctx context.Context, peerID string, before time.Time, limit int) ([]StoredMessage, error) {
+// A nil before value starts at the newest message. A non-positive limit uses 50.
+func (s *BboltStore) ListMessages(ctx context.Context, peerID string, before *message.Message, limit int) ([]StoredMessage, error) {
 	if peerID == "" {
 		return nil, fmt.Errorf("list messages: %w", ErrInvalidRecord)
 	}
@@ -320,7 +320,7 @@ func (s *BboltStore) ListMessages(ctx context.Context, peerID string, before tim
 		cursor := bucket.Cursor()
 		prefix := conversationPrefix(peerID)
 		var key, value []byte
-		if before.IsZero() {
+		if before == nil {
 			// The successor of the prefix sorts after every key in this conversation.
 			upper := append(bytes.Clone(prefix[:len(prefix)-1]), prefix[len(prefix)-1]+1)
 			key, value = cursor.Seek(upper)
@@ -330,10 +330,16 @@ func (s *BboltStore) ListMessages(ctx context.Context, peerID string, before tim
 				key, value = cursor.Prev()
 			}
 		} else {
-			upper := append(bytes.Clone(prefix), timestampBytes(before)...)
+			upper := messageKey(StoredMessage{ConversationPeerID: peerID, Envelope: *before})
 			key, value = cursor.Seek(upper)
 			if key == nil {
-				key, value = cursor.Last()
+				conversationUpper := append(bytes.Clone(prefix[:len(prefix)-1]), prefix[len(prefix)-1]+1)
+				key, value = cursor.Seek(conversationUpper)
+				if key == nil {
+					key, value = cursor.Last()
+				} else {
+					key, value = cursor.Prev()
+				}
 			} else {
 				key, value = cursor.Prev()
 			}

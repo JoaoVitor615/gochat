@@ -21,5 +21,5 @@ func (a *App) GoChatCommand(ctx context.Context) error {
 		}()
 	}
 
-	return tui.Run(ctx, a.Identity.PeerID, a.DiscoveryClient, a.Store)
+	return tui.Run(ctx, a.Identity.PeerID, a.DiscoveryClient, a.Store, a.Messenger)
 }

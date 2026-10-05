@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/JoaoVitor615/gochat/internal/chat/client"
+	"github.com/JoaoVitor615/gochat/internal/chat/message"
+	"github.com/JoaoVitor615/gochat/internal/chat/messaging"
 	"github.com/JoaoVitor615/gochat/internal/chat/storage"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -24,6 +26,11 @@ type PeerAPI interface {
 type PeerStore interface {
 	ListPeers(context.Context) ([]storage.Peer, error)
 	SavePeer(context.Context, storage.Peer) error
+	ListMessages(context.Context, string, *message.Message, int) ([]storage.StoredMessage, error)
+}
+
+type MessageSender interface {
+	Send(context.Context, string, string) (messaging.SendResult, error)
 }
 
 type peer struct {
@@ -42,20 +49,28 @@ const (
 )
 
 type model struct {
-	ctx       context.Context
-	api       PeerAPI
-	peerStore PeerStore
-	localID   string
-	width     int
-	height    int
-	selected  int
-	active    int
-	panel     panel
-	code      string
-	invite    string
-	loading   bool
-	errText   string
-	peers     []peer
+	ctx         context.Context
+	api         PeerAPI
+	peerStore   PeerStore
+	sender      MessageSender
+	localID     string
+	width       int
+	height      int
+	selected    int
+	active      int
+	panel       panel
+	code        string
+	invite      string
+	loading     bool
+	errText     string
+	peers       []peer
+	messages    []storage.StoredMessage
+	hasOlder    bool
+	loadingChat bool
+	sending     bool
+	input       string
+	chatNotice  string
+	scrollBack  int
 }
 
 type inviteResult struct {
@@ -70,27 +85,47 @@ type addPeerResult struct {
 	lastSeenAt     time.Time
 }
 
+const (
+	messagePageSize = 50
+	refreshInterval = 2 * time.Second
+)
+
+type historyResult struct {
+	peerID   string
+	messages []storage.StoredMessage
+	older    bool
+	hasOlder bool
+	err      error
+}
+
+type sendResult struct {
+	peerID string
+	text   string
+	result messaging.SendResult
+	err    error
+}
+
+type refreshTick time.Time
+
 var (
 	accent = lipgloss.Color("#7DD3FC")
 	muted  = lipgloss.Color("#94A3B8")
-	green  = lipgloss.Color("#4ADE80")
 	white  = lipgloss.Color("#F8FAFC")
 
 	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	mutedStyle    = lipgloss.NewStyle().Foreground(muted)
 	peerStyle     = lipgloss.NewStyle().Foreground(white)
 	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0F172A")).Background(accent)
-	onlineStyle   = lipgloss.NewStyle().Foreground(green)
 	borderStyle   = lipgloss.NewStyle().Foreground(muted)
 )
 
 // Run opens the chat TUI and keeps peer operations tied to the app context.
-func Run(ctx context.Context, localPeerID string, api PeerAPI, peerStore PeerStore) error {
+func Run(ctx context.Context, localPeerID string, api PeerAPI, peerStore PeerStore, sender MessageSender) error {
 	savedPeers, err := peerStore.ListPeers(ctx)
 	if err != nil {
 		return fmt.Errorf("load saved peers: %w", err)
 	}
-	initial := model{ctx: ctx, api: api, peerStore: peerStore, localID: localPeerID, active: -1}
+	initial := model{ctx: ctx, api: api, peerStore: peerStore, sender: sender, localID: localPeerID, active: -1}
 	for _, saved := range savedPeers {
 		initial.peers = append(initial.peers, peer{
 			id: saved.PeerID, displayName: saved.DisplayName,
@@ -101,12 +136,64 @@ func Run(ctx context.Context, localPeerID string, api PeerAPI, peerStore PeerSto
 	return err
 }
 
-func (m model) Init() tea.Cmd { return nil }
+func (m model) Init() tea.Cmd { return refreshTickCmd() }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+	case refreshTick:
+		commands := []tea.Cmd{refreshTickCmd()}
+		if peerID := m.activePeerID(); peerID != "" && m.scrollBack == 0 && !m.loadingChat {
+			m.loadingChat = true
+			commands = append(commands, m.loadHistoryCmd(peerID, nil, false))
+		}
+		return m, tea.Batch(commands...)
+	case historyResult:
+		if msg.peerID != m.activePeerID() {
+			return m, nil
+		}
+		m.loadingChat = false
+		if msg.err != nil {
+			m.chatNotice = "Falha ao carregar histórico: " + msg.err.Error()
+			return m, nil
+		}
+		m.hasOlder = msg.hasOlder
+		if msg.older {
+			m.messages = prependMessages(msg.messages, m.messages)
+			m.scrollBack += len(msg.messages) * 3
+		} else {
+			m.messages = msg.messages
+			m.scrollBack = 0
+			m.chatNotice = ""
+		}
+	case sendResult:
+		m.sending = false
+		if msg.peerID != m.activePeerID() {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.chatNotice = "Não foi possível enfileirar: " + msg.err.Error()
+			return m, nil
+		}
+		if msg.result.Message.ID != "" {
+			m.messages = appendMessage(m.messages, storage.StoredMessage{
+				ConversationPeerID: msg.peerID,
+				Envelope:           msg.result.Message,
+				Status:             msg.result.Status,
+			})
+			m.scrollBack = 0
+			if m.input == msg.text {
+				m.input = ""
+			}
+		}
+		if msg.result.DeliveryError != nil {
+			m.chatNotice = "Salva localmente; aguardando entrega. " + msg.result.DeliveryError.Error()
+		} else if msg.result.Status == message.DeliveryDelivered {
+			m.chatNotice = "Entrega confirmada pelo peer."
+		} else {
+			m.chatNotice = "Mensagem salva na fila local."
+		}
 	case inviteResult:
 		m.loading = false
 		m.invite, m.errText = msg.code, errorText(msg.err)
@@ -148,6 +235,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.active >= 0 {
+			return m.updateChat(msg)
+		}
 
 		switch msg.String() {
 		case "q":
@@ -163,6 +253,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if m.selected >= 0 && m.selected < len(m.peers) {
 				m.active = m.selected
+				m.messages = nil
+				m.hasOlder = false
+				m.loadingChat = true
+				m.chatNotice = ""
+				m.scrollBack = 0
+				return m, m.loadHistoryCmd(m.activePeerID(), nil, false)
 			}
 		case "esc":
 			m.active = -1
@@ -204,6 +300,116 @@ func (m model) updateAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m model) updateChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.active, m.input, m.chatNotice = -1, "", ""
+	case "enter":
+		if m.sending || strings.TrimSpace(m.input) == "" {
+			return m, nil
+		}
+		if m.sender == nil {
+			m.chatNotice = "O serviço de envio não está disponível."
+			return m, nil
+		}
+		peerID, text := m.activePeerID(), m.input
+		m.sending, m.chatNotice = true, "Enfileirando mensagem…"
+		return m, func() tea.Msg {
+			result, err := m.sender.Send(m.ctx, peerID, text)
+			return sendResult{peerID: peerID, text: text, result: result, err: err}
+		}
+	case "backspace", "ctrl+h":
+		if runes := []rune(m.input); len(runes) > 0 {
+			m.input = string(runes[:len(runes)-1])
+		}
+	case "ctrl+u":
+		m.input = ""
+	case "pgup":
+		step := max(1, m.height/3)
+		m.scrollBack += step
+		if m.scrollBack >= len(m.messages)*3 && m.hasOlder && !m.loadingChat && len(m.messages) > 0 {
+			m.loadingChat = true
+			before := m.messages[0].Envelope
+			return m, m.loadHistoryCmd(m.activePeerID(), &before, true)
+		}
+	case "pgdown":
+		m.scrollBack = max(0, m.scrollBack-max(1, m.height/3))
+	default:
+		if msg.Type == tea.KeyRunes && !m.sending {
+			m.input += string(msg.Runes)
+		}
+	}
+	return m, nil
+}
+
+func (m model) loadHistoryCmd(peerID string, before *message.Message, older bool) tea.Cmd {
+	var cursor *message.Message
+	if before != nil {
+		copy := *before
+		cursor = &copy
+	}
+	return func() tea.Msg {
+		messages, err := m.peerStore.ListMessages(m.ctx, peerID, cursor, messagePageSize+1)
+		if err != nil {
+			return historyResult{peerID: peerID, older: older, err: err}
+		}
+		hasOlder := len(messages) > messagePageSize
+		if hasOlder {
+			messages = messages[len(messages)-messagePageSize:]
+		}
+		return historyResult{peerID: peerID, messages: messages, older: older, hasOlder: hasOlder}
+	}
+}
+
+func refreshTickCmd() tea.Cmd {
+	return tea.Tick(refreshInterval, func(t time.Time) tea.Msg { return refreshTick(t) })
+}
+
+func (m model) activePeerID() string {
+	if m.active < 0 || m.active >= len(m.peers) {
+		return ""
+	}
+	return m.peers[m.active].id
+}
+
+func appendMessage(existing []storage.StoredMessage, added storage.StoredMessage) []storage.StoredMessage {
+	for _, current := range existing {
+		if current.Envelope.ID == added.Envelope.ID {
+			return existing
+		}
+	}
+	return sortedMessages(append(existing, added))
+}
+
+func prependMessages(older, current []storage.StoredMessage) []storage.StoredMessage {
+	combined := make([]storage.StoredMessage, 0, len(older)+len(current))
+	combined = append(combined, older...)
+	combined = append(combined, current...)
+	return sortedMessages(combined)
+}
+
+func sortedMessages(messages []storage.StoredMessage) []storage.StoredMessage {
+	for i := 1; i < len(messages); i++ {
+		for j := i; j > 0; j-- {
+			left, right := messages[j-1].Envelope, messages[j].Envelope
+			if left.CreatedAt.Before(right.CreatedAt) || (left.CreatedAt.Equal(right.CreatedAt) && left.ID <= right.ID) {
+				break
+			}
+			messages[j-1], messages[j] = messages[j], messages[j-1]
+		}
+	}
+	unique := messages[:0]
+	seen := make(map[string]struct{}, len(messages))
+	for _, stored := range messages {
+		if _, ok := seen[stored.Envelope.ID]; ok {
+			continue
+		}
+		seen[stored.Envelope.ID] = struct{}{}
+		unique = append(unique, stored)
+	}
+	return unique
 }
 
 func (m model) createInviteCmd() tea.Cmd {
@@ -280,6 +486,9 @@ func (m model) View() string {
 
 	rows = append(rows, borderStyle.Render("├"+strings.Repeat("─", sideWidth)+"┴"+strings.Repeat("─", mainWidth)+"┤"))
 	footer := " ↑↓/j k navegar  ·  enter abrir  ·  a adicionar  ·  i convidar  ·  q sair"
+	if m.active >= 0 {
+		footer = " enter enviar  ·  pgup histórico  ·  esc voltar  ·  ctrl+u limpar"
+	}
 	if m.panel != noPanel {
 		footer = " esc fechar  ·  convites expiram após 10 minutos"
 	}
@@ -327,21 +536,60 @@ func (m model) mainArea(width, height int) []string {
 	p := m.peers[m.active]
 	rows[0] = "  " + titleStyle.Render(shortPeerID(p.id))
 	rows[1] = "  " + mutedStyle.Render(peerLastSeen(p.lastSeenAt))
-	rows[2] = borderStyle.Render(strings.Repeat("─", width))
-	rows[4] = "  " + mutedStyle.Render("Peer ID")
-	rows[5] = "  " + peerStyle.Render(ansi.Truncate(p.id, width-4, "…"))
-	if len(p.addresses) > 0 {
-		rows[7] = "  " + mutedStyle.Render("Endereços anunciados")
-		for i, address := range p.addresses {
-			row := 8 + i
-			if row >= height-2 {
-				break
+	messageBottom := height - 4
+	messageRows := make([]string, 0, height)
+	if m.loadingChat && len(m.messages) == 0 {
+		messageRows = append(messageRows, mutedStyle.Render("  Carregando histórico…"))
+	} else if len(m.messages) == 0 {
+		messageRows = append(messageRows, mutedStyle.Render("  Ainda não há mensagens. Escreva abaixo."))
+	} else {
+		for _, stored := range m.messages {
+			envelope := stored.Envelope
+			who, status := "Peer", "recebida"
+			if envelope.SenderPeerID == m.localID {
+				who, status = "Você", deliveryLabel(stored.Status)
 			}
-			rows[row] = "  " + peerStyle.Render(ansi.Truncate(address, width-4, "…"))
+			heading := fmt.Sprintf("  %s · %s · %s", who, envelope.CreatedAt.Local().Format("15:04"), status)
+			messageRows = append(messageRows, mutedStyle.Render(ansi.Truncate(heading, width-1, "…")))
+			body := lipgloss.NewStyle().Width(max(1, width-4)).Render(envelope.Content)
+			for _, line := range strings.Split(body, "\n") {
+				messageRows = append(messageRows, "  "+line)
+			}
+			messageRows = append(messageRows, "")
 		}
 	}
-	rows[height-2] = mutedStyle.Render("  Peer salvo localmente neste dispositivo.")
+	visibleRows := max(0, messageBottom-3)
+	end := max(0, len(messageRows)-m.scrollBack)
+	start := max(0, end-visibleRows)
+	for i, line := range messageRows[start:end] {
+		row := 3 + i
+		if row >= messageBottom {
+			break
+		}
+		rows[row] = line
+	}
+	rows[height-4] = borderStyle.Render(strings.Repeat("─", width))
+	if m.chatNotice != "" {
+		rows[height-3] = mutedStyle.Render("  " + ansi.Truncate(m.chatNotice, width-4, "…"))
+	}
+	rows[height-2] = "  > " + ansi.Truncate(m.input, max(0, width-8), "…")
+	if m.sending {
+		rows[height-2] += mutedStyle.Render("  enviando…")
+	}
 	return rows
+}
+
+func deliveryLabel(status message.DeliveryStatus) string {
+	switch status {
+	case message.DeliveryPending:
+		return "na fila"
+	case message.DeliverySent:
+		return "enviado · aguardando confirmação"
+	case message.DeliveryDelivered:
+		return "entregue"
+	default:
+		return string(status)
+	}
 }
 
 func (m model) dialog(width, height int) []string {
