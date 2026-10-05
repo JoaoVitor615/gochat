@@ -19,10 +19,9 @@ import (
 )
 
 const (
-	databaseFileName  = "gochat.db"
-	currentSchema     = uint64(1)
-	defaultPageSize   = 50
-	defaultOutboxSize = 100
+	databaseFileName = "gochat.db"
+	currentSchema    = uint64(1)
+	defaultPageSize  = 50
 )
 
 var (
@@ -426,16 +425,13 @@ func (s *BboltStore) QueueMessage(ctx context.Context, conversationPeerID string
 }
 
 func (s *BboltStore) ListOutbox(ctx context.Context, limit int) ([]OutboxEntry, error) {
-	if limit <= 0 {
-		limit = defaultOutboxSize
-	}
-	entries := make([]OutboxEntry, 0, limit)
+	entries := make([]OutboxEntry, 0)
 	if err := checkContext(ctx); err != nil {
 		return nil, err
 	}
 	err := s.db.View(func(tx *bolt.Tx) error {
 		cursor := tx.Bucket(outboxBucket).Cursor()
-		for _, value := cursor.First(); value != nil && len(entries) < limit; _, value = cursor.Next() {
+		for _, value := cursor.First(); value != nil && (limit <= 0 || len(entries) < limit); _, value = cursor.Next() {
 			if err := checkContext(ctx); err != nil {
 				return err
 			}

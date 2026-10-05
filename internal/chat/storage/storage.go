@@ -50,5 +50,6 @@ type Repository interface {
 	ListMessages(context.Context, string, time.Time, int) ([]StoredMessage, error)
 	UpdateMessageStatus(context.Context, string, message.DeliveryStatus) error
 	QueueMessage(context.Context, string, message.Message) error
+	// ListOutbox returns all entries when limit is non-positive.
 	ListOutbox(context.Context, int) ([]OutboxEntry, error)
 }

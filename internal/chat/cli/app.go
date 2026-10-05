@@ -6,6 +6,7 @@ import (
 
 	"github.com/JoaoVitor615/gochat/internal/chat/client"
 	"github.com/JoaoVitor615/gochat/internal/chat/identity"
+	"github.com/JoaoVitor615/gochat/internal/chat/messaging"
 	"github.com/JoaoVitor615/gochat/internal/chat/storage"
 	"github.com/libp2p/go-libp2p/core/host"
 )
@@ -13,6 +14,7 @@ import (
 type App struct {
 	Identity        *identity.Identity
 	DiscoveryClient *client.Client
+	Messenger       *messaging.Service
 	Store           storage.Repository
 	ObserverAddress string
 	Host            host.Host

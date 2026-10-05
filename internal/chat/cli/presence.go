@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/JoaoVitor615/gochat/internal/chat/messaging"
 	"github.com/JoaoVitor615/gochat/internal/chat/p2p"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -53,6 +54,20 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 		return nil, err
 	}
 
+	messenger := messaging.New(h, a.Identity.PeerID, a.Store)
+	a.Messenger = messenger
+	peerNotifications := &network.NotifyBundle{
+		ConnectedF: func(_ network.Network, connection network.Conn) {
+			remotePeerID := connection.RemotePeer().String()
+			go func() {
+				if err := messenger.RetryPeer(ctx, remotePeerID); err != nil && ctx.Err() == nil {
+					log.Printf("retry queued messages for peer %s: %v", remotePeerID, err)
+				}
+			}()
+		},
+	}
+	h.Network().Notify(peerNotifications)
+
 	heartbeatCtx, cancelHeartbeat := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
@@ -85,9 +100,11 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 	return func() {
 		cancelHeartbeat()
 		<-done
+		h.Network().StopNotify(peerNotifications)
 		if err := h.Close(); err != nil {
 			log.Printf("close peer host: %v", err)
 		}
+		a.Messenger = nil
 		a.Host = nil
 	}, nil
 }
