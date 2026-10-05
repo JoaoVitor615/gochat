@@ -40,6 +40,7 @@ jobs:
             'echo "Preflight: checking EC2 deployment environment"' \
             'command -v git >/dev/null 2>&1 || { echo "Preflight failed: git is not installed" >&2; exit 1; }' \
             'command -v docker >/dev/null 2>&1 || { echo "Preflight failed: Docker is not installed" >&2; exit 1; }' \
+            'if command -v go >/dev/null 2>&1; then echo "Preflight: host Go is available: $(go version)"; else echo "Preflight: host Go is not installed (optional; Discovery builds inside Docker)"; fi' \
             'id ec2-user >/dev/null 2>&1 || { echo "Preflight failed: ec2-user does not exist" >&2; exit 1; }' \
             'test -d "$APP_DIR" || { echo "Preflight failed: EC2_APP_DIR does not exist: $APP_DIR" >&2; exit 1; }' \
             'test -f "$APP_DIR/docker-compose.yml" || { echo "Preflight failed: docker-compose.yml not found in $APP_DIR" >&2; exit 1; }' \
@@ -60,13 +61,13 @@ jobs:
             "sudo -u ec2-user -H git -C " + ($dir | @sh) + " fetch origin master",
             "sudo -u ec2-user -H git -C " + ($dir | @sh) + " checkout master",
             "sudo -u ec2-user -H git -C " + ($dir | @sh) + " pull --ff-only origin master",
-            "printf '%s\\n' DISCOVERY_PORT=8080 REDIS_ADDR=redis:6379 " + (("DISCOVERY_OBSERVER_ADVERTISE_ADDR=" + $observer_addr) | @sh) + " > " + (($dir + "/.env.discovery") | @sh),
+            "printf \"%s\\n\" DISCOVERY_PORT=8080 REDIS_ADDR=redis:6379 " + (("DISCOVERY_OBSERVER_ADVERTISE_ADDR=" + $observer_addr) | @sh) + " > " + (($dir + "/.env.discovery") | @sh),
             "chmod 600 " + (($dir + "/.env.discovery") | @sh),
             "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " config >/dev/null",
             "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " build --builder gochat-builder --progress=plain discovery",
             "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " up -d --no-build --force-recreate discovery",
             "actual_redis_addr=$(docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " exec -T discovery printenv REDIS_ADDR)",
-            "test \"$actual_redis_addr\" = redis:6379 || { echo \"Deploy verification failed: Discovery REDIS_ADDR is '$actual_redis_addr'\" >&2; exit 1; }",
+            "test \"$actual_redis_addr\" = redis:6379 || { echo \"Deploy verification failed: Discovery REDIS_ADDR is $actual_redis_addr\" >&2; exit 1; }",
             "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " exec -T redis redis-cli ping | grep -qx PONG"
           ]}')
 

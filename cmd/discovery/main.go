@@ -42,7 +42,7 @@ func main() {
 		log.Printf("libp2p address observer disabled: DISCOVERY_OBSERVER_ADVERTISE_ADDR is empty")
 	}
 
-	server := discovery.NewServer(service.New(redisRepository))
+	server := discovery.NewServer(service.New(redisRepository), addressObserver)
 
 	log.Printf("Discovery listening on :%s", port)
 

@@ -16,7 +16,6 @@ type App struct {
 	DiscoveryClient *client.Client
 	Messenger       *messaging.Service
 	Store           storage.Repository
-	ObserverAddress string
 	Host            host.Host
 }
 
@@ -27,8 +26,6 @@ func InitApp() (*App, error) {
 	}
 
 	discoveryURL := os.Getenv("DISCOVERY_URL")
-	observerAddress := os.Getenv("DISCOVERY_OBSERVER_PUBLIC_ADDR")
-
 	client, err := client.NewClient(discoveryURL)
 	if err != nil {
 		return nil, fmt.Errorf("initialize discovery client: %w", err)
@@ -43,7 +40,6 @@ func InitApp() (*App, error) {
 		Identity:        id,
 		DiscoveryClient: client,
 		Store:           store,
-		ObserverAddress: observerAddress,
 	}, nil
 }
 

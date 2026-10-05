@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/JoaoVitor615/gochat/internal/chat/client"
 	"github.com/JoaoVitor615/gochat/internal/chat/messaging"
 	"github.com/JoaoVitor615/gochat/internal/chat/p2p"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -37,9 +38,13 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 		}
 	})
 
-	observedAddress, err := connectToAddressObserver(ctx, h, a.ObserverAddress)
-	if err != nil && a.ObserverAddress != "" {
-		log.Printf("public UDP address observation unavailable; continuing with local libp2p addresses: %v", err)
+	observerAddress, observerErr := lookupObserverAddress(ctx, a.DiscoveryClient)
+	var observedAddress []ma.Multiaddr
+	if observerErr == nil {
+		observedAddress, observerErr = connectToAddressObserver(ctx, h, observerAddress)
+	}
+	if observerErr != nil {
+		log.Printf("public UDP address observation unavailable; continuing with local libp2p addresses: %v", observerErr)
 	}
 	addresses, err := peerAddressStrings(h, observedAddress)
 	if err != nil {
@@ -90,8 +95,12 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 			case <-heartbeatCtx.Done():
 				return
 			case <-ticker.C:
-				currentObservedAddress, err := observePublicAddress(heartbeatCtx, h, a.ObserverAddress)
-				if err != nil && a.ObserverAddress != "" {
+				currentObserverAddress, err := lookupObserverAddress(heartbeatCtx, a.DiscoveryClient)
+				var currentObservedAddress []ma.Multiaddr
+				if err == nil {
+					currentObservedAddress, err = observePublicAddress(heartbeatCtx, h, currentObserverAddress)
+				}
+				if err != nil {
 					log.Printf("refresh public UDP address observation: %v", err)
 				}
 				currentAddresses, addressErr := peerAddressStrings(h, currentObservedAddress)
@@ -169,6 +178,24 @@ func publishableAddresses(groups ...[]ma.Multiaddr) []ma.Multiaddr {
 	return addresses
 }
 
+func lookupObserverAddress(ctx context.Context, discoveryClient *client.Client) (string, error) {
+	info, err := discoveryClient.GetObserver(ctx)
+	if err != nil {
+		return "", err
+	}
+	if info == nil || info.Address == "" {
+		return "", fmt.Errorf("Discovery returned an empty observer address")
+	}
+	address, err := ma.NewMultiaddr(info.Address)
+	if err != nil {
+		return "", fmt.Errorf("invalid observer address from Discovery: %w", err)
+	}
+	if _, err := peer.AddrInfoFromP2pAddr(address); err != nil {
+		return "", fmt.Errorf("invalid observer peer info from Discovery: %w", err)
+	}
+	return info.Address, nil
+}
+
 func connectToAddressObserver(ctx context.Context, h host.Host, observerAddress string) ([]ma.Multiaddr, error) {
 	observerAddr, err := ma.NewMultiaddr(observerAddress)
 	if err != nil {
@@ -182,9 +209,6 @@ func connectToAddressObserver(ctx context.Context, h host.Host, observerAddress 
 }
 
 func observePublicAddress(ctx context.Context, h host.Host, observerAddress string) ([]ma.Multiaddr, error) {
-	if observerAddress == "" {
-		return nil, nil
-	}
 	observerAddr, err := ma.NewMultiaddr(observerAddress)
 	if err != nil {
 		return nil, fmt.Errorf("invalid observer address: %w", err)
