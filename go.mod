@@ -11,6 +11,7 @@ require (
 	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/urfave/cli/v3 v3.11.0
+	go.etcd.io/bbolt v1.5.0
 )
 
 require (

@@ -1,6 +1,8 @@
 package identity
 
+import "github.com/JoaoVitor615/gochat/internal/chat"
+
 const (
-	MainDir     = ".gochat"
+	MainDir     = chat.DataDirectory
 	KeyFileName = "identity.key"
 )

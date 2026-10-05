@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 
@@ -10,16 +12,27 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() (err error) {
 	if err := godotenv.Load(".env.chat"); err != nil {
-		log.Fatalf("load .env.chat: %v", err)
+		return fmt.Errorf("load .env.chat: %w", err)
 	}
 
-	app := cli.InitApp()
+	app, err := cli.InitApp()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := app.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close app: %w", closeErr))
+		}
+	}()
 
 	cmd := cli.InitCli(app)
 
-	if err := cmd.Run(context.Background(), os.Args); err != nil {
-		log.Fatal(err)
-	}
-
+	return cmd.Run(context.Background(), os.Args)
 }
