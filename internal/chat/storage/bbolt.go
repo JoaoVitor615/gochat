@@ -238,6 +238,49 @@ func (s *BboltStore) SaveMessage(ctx context.Context, stored StoredMessage) erro
 	})
 }
 
+// SaveMessageOnce inserts an incoming message only if its ID has not been
+// stored. An identical retransmission is treated as a harmless duplicate;
+// reusing an ID for different content is rejected.
+func (s *BboltStore) SaveMessageOnce(ctx context.Context, stored StoredMessage) (bool, error) {
+	if err := validateStoredMessage(stored); err != nil {
+		return false, err
+	}
+	stored.Envelope.CreatedAt = stored.Envelope.CreatedAt.UTC()
+	if err := checkContext(ctx); err != nil {
+		return false, err
+	}
+	created := false
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		if err := checkContext(ctx); err != nil {
+			return err
+		}
+		ids := tx.Bucket(messageIDsBucket)
+		if previous := ids.Get([]byte(stored.Envelope.ID)); previous != nil {
+			value := tx.Bucket(messagesBucket).Get(previous)
+			if value == nil {
+				return fmt.Errorf("message index references a missing record")
+			}
+			var existing StoredMessage
+			if err := json.Unmarshal(value, &existing); err != nil {
+				return fmt.Errorf("decode existing message: %w", err)
+			}
+			if existing.ConversationPeerID != stored.ConversationPeerID || !sameEnvelope(existing.Envelope, stored.Envelope) {
+				return ErrMessageIDExists
+			}
+			return nil
+		}
+		if err := saveMessage(tx, stored); err != nil {
+			return err
+		}
+		created = true
+		return nil
+	})
+	if err != nil {
+		return false, fmt.Errorf("save message once: %w", err)
+	}
+	return created, nil
+}
+
 func (s *BboltStore) GetMessage(ctx context.Context, messageID string) (StoredMessage, error) {
 	var stored StoredMessage
 	if err := checkContext(ctx); err != nil {
@@ -453,6 +496,15 @@ func validStatus(status message.DeliveryStatus) bool {
 	default:
 		return false
 	}
+}
+
+func sameEnvelope(left, right message.Message) bool {
+	return left.ID == right.ID &&
+		left.SenderPeerID == right.SenderPeerID &&
+		left.RecipientPeerID == right.RecipientPeerID &&
+		left.CreatedAt.Equal(right.CreatedAt) &&
+		left.Content == right.Content &&
+		left.ProtocolVersion == right.ProtocolVersion
 }
 
 func messageKey(stored StoredMessage) []byte {

@@ -11,7 +11,7 @@ import (
 
 var (
 	ErrNotFound        = errors.New("storage: record not found")
-	ErrMessageIDExists = errors.New("storage: message ID already belongs to another conversation")
+	ErrMessageIDExists = errors.New("storage: message ID conflicts with an existing message")
 	ErrInvalidRecord   = errors.New("storage: invalid record")
 )
 
@@ -45,6 +45,7 @@ type Repository interface {
 	ListPeers(context.Context) ([]Peer, error)
 	DeletePeer(context.Context, string) error
 	SaveMessage(context.Context, StoredMessage) error
+	SaveMessageOnce(context.Context, StoredMessage) (bool, error)
 	GetMessage(context.Context, string) (StoredMessage, error)
 	ListMessages(context.Context, string, time.Time, int) ([]StoredMessage, error)
 	UpdateMessageStatus(context.Context, string, message.DeliveryStatus) error

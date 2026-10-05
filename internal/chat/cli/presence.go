@@ -9,6 +9,7 @@ import (
 
 	"github.com/JoaoVitor615/gochat/internal/chat/p2p"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	ma "github.com/multiformats/go-multiaddr"
@@ -29,6 +30,11 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 		return nil, fmt.Errorf("start peer host: %w", err)
 	}
 	a.Host = h
+	p2p.SetStreamHandler(h, func(stream network.Stream) {
+		if err := p2p.HandleStream(ctx, stream, a.Store, a.Identity.PeerID); err != nil && ctx.Err() == nil {
+			log.Printf("handle peer message: %v", err)
+		}
+	})
 
 	observedAddress, err := connectToAddressObserver(ctx, h, a.ObserverAddress)
 	if err != nil && a.ObserverAddress != "" {
