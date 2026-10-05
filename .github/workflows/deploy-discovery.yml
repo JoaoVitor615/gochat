@@ -67,7 +67,7 @@ jobs:
             "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " build --builder gochat-builder --progress=plain discovery",
             "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " up -d --no-build --force-recreate discovery",
             "actual_redis_addr=$(docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " exec -T discovery printenv REDIS_ADDR)",
-            "test \"$actual_redis_addr\" = redis:6379 || { echo \"Deploy verification failed: Discovery REDIS_ADDR is '$actual_redis_addr'\" >&2; exit 1; }",
+            "test \"$actual_redis_addr\" = redis:6379 || { echo \"Deploy verification failed: Discovery REDIS_ADDR is $actual_redis_addr\" >&2; exit 1; }",
             "docker compose -f " + (($dir + "/docker-compose.yml") | @sh) + " exec -T redis redis-cli ping | grep -qx PONG"
           ]}')
 
