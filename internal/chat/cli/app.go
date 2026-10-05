@@ -12,6 +12,7 @@ import (
 type App struct {
 	Identity        *identity.Identity
 	DiscoveryClient *client.Client
+	ObserverAddress string
 	Host            host.Host
 }
 
@@ -22,6 +23,7 @@ func InitApp() *App {
 	}
 
 	discoveryURL := os.Getenv("DISCOVERY_URL")
+	observerAddress := os.Getenv("DISCOVERY_OBSERVER_PUBLIC_ADDR")
 
 	client, err := client.NewClient(discoveryURL)
 	if err != nil {
@@ -31,5 +33,6 @@ func InitApp() *App {
 	return &App{
 		Identity:        id,
 		DiscoveryClient: client,
+		ObserverAddress: observerAddress,
 	}
 }
