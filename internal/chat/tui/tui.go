@@ -603,7 +603,7 @@ func deliveryLabel(status message.DeliveryStatus) string {
 
 func (m model) dialog(width, height int) []string {
 	rows := make([]string, height)
-	boxWidth := min(43, width-4)
+	boxWidth := min(76, width-4)
 	var content []string
 	if m.panel == addPanel {
 		field := m.code
@@ -634,7 +634,10 @@ func (m model) dialog(width, height int) []string {
 		content = []string{titleStyle.Render("SEU CONVITE"), "", "Compartilhe este código:", "", center(titleStyle.Render(code), boxWidth-4), "", center(mutedStyle.Render("válido por 10 minutos"), boxWidth-4), "", mutedStyle.Render(instruction)}
 	}
 	if m.errText != "" {
-		content = append(content, lipgloss.NewStyle().Foreground(lipgloss.Color("#F87171")).Render(ansi.Truncate(m.errText, boxWidth-6, "…")))
+		errorStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#F87171")).
+			Width(max(1, boxWidth-6))
+		content = append(content, strings.Split(errorStyle.Render(m.errText), "\n")...)
 	}
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(accent).
 		Padding(1, 2).Width(boxWidth - 2).Render(strings.Join(content, "\n"))
