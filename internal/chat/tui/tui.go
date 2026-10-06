@@ -667,15 +667,18 @@ func (m model) mainArea(width, height int) []string {
 	} else {
 		for _, stored := range m.messages {
 			envelope := stored.Envelope
-			who, status := "Peer", "recebida"
-			if envelope.SenderPeerID == m.localID {
-				who, status = "Você", deliveryLabel(stored.Status)
+			isLocal := envelope.SenderPeerID == m.localID
+			who, status, headingStyle := "Peer", "recebida", mutedStyle
+			if isLocal {
+				who, status, headingStyle = "Você", deliveryLabel(stored.Status), titleStyle
 			}
-			heading := fmt.Sprintf("  %s · %s · %s", who, envelope.CreatedAt.Local().Format("15:04"), status)
-			messageRows = append(messageRows, mutedStyle.Render(ansi.Truncate(heading, width-1, "…")))
-			body := lipgloss.NewStyle().Width(max(1, width-4)).Render(envelope.Content)
-			for _, line := range strings.Split(body, "\n") {
-				messageRows = append(messageRows, "  "+line)
+			wrapWidth := max(1, width-6)
+			heading := fmt.Sprintf("%s · %s · %s", who, envelope.CreatedAt.Local().Format("15:04"), status)
+			for _, line := range wrapChatText(heading, wrapWidth) {
+				messageRows = append(messageRows, alignChatLine(headingStyle.Render(line), width, isLocal))
+			}
+			for _, line := range wrapChatText(envelope.Content, wrapWidth) {
+				messageRows = append(messageRows, alignChatLine(line, width, isLocal))
 			}
 			messageRows = append(messageRows, "")
 		}
@@ -800,4 +803,20 @@ func fit(value string, width int) string {
 
 func center(value string, width int) string {
 	return strings.Repeat(" ", max(0, (width-lipgloss.Width(value))/2)) + value
+}
+
+func alignChatLine(value string, width int, right bool) string {
+	if right {
+		return strings.Repeat(" ", max(2, width-lipgloss.Width(value)-2)) + value
+	}
+	return "  " + value
+}
+
+func wrapChatText(value string, width int) []string {
+	wrapped := lipgloss.NewStyle().Width(width).Render(value)
+	lines := strings.Split(wrapped, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], " ")
+	}
+	return lines
 }
