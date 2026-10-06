@@ -55,14 +55,15 @@ O Discovery não é um servidor de chat: não recebe, persiste nem retransmite c
 
 1. Um peer online solicita ao Discovery um convite associado ao seu PeerID.
 2. O código tem nove caracteres alfanuméricos, formatados como `XXX-XXX-XXX`; é gerado usando `crypto/rand`.
-3. O convite expira após 10 minutos e só pode ser resolvido uma vez. A resolução consome a chave do convite no Redis (`GETDEL`).
-4. Para resolver um convite, o peer precisa ainda ter presença válida no Discovery; se o registro temporário de presença expirou, a API retorna peer offline.
-5. A resolução entrega PeerID e os endereços anunciados no heartbeat. O app valida/usa esses endereços e salva o contato localmente.
-6. Adicionar um contato registra os multiaddrs no peerstore libp2p, associando-os ao PeerID validado. No início de cada execução, o app tenta restaurar do banco os endereços salvos.
-7. Um contato salvo permanece localmente mesmo que fique offline. Excluir um contato não apaga o histórico de mensagens.
-8. Convites e contatos são locais a cada instalação. Para que ambos vejam um ao outro como contato no estado atual, cada lado deve adicionar o convite do outro.
-9. O caminho `gochat invite` cria e imprime o convite, mas encerra o comando ao terminar. A presença fica online apenas enquanto o processo/host estiver ativo. Para um convite ser resolvido e o peer continuar alcançável, o GoChat do criador precisa permanecer em execução; o TUI mantém o host ativo enquanto está aberto.
-10. A opção de adicionar no TUI normaliza o código para maiúsculas e remove hífens. A interface espera nove caracteres alfanuméricos.
+3. O convite expira após 10 minutos e só pode ser aceito uma vez. O Discovery consome o convite e registra o evento de aceitação atomicamente no Redis.
+4. Para aceitar um convite, tanto o peer que o criou quanto o peer que o aceita precisam ter presença válida no Discovery. Se um deles estiver offline, a operação falha sem consumir o convite.
+5. A aceitação retorna ao peer que digitou o código o PeerID e os endereços do criador; também deixa um evento temporário com o PeerID/endereço do aceitante para o criador.
+6. O TUI do criador consulta aceitações a cada 2 segundos, somente até 10 minutos após a criação do convite. Após receber e persistir o contato, confirma o evento ao Discovery.
+7. Os dois lados salvam o contato localmente, registram os multiaddrs no peerstore e tentam estabelecer uma conexão direta libp2p. Ambos abrem o chat do peer aceito; falha de conexão não encaminha mensagens pelo Discovery e é exibida no chat.
+8. Um contato salvo permanece localmente mesmo que fique offline. Excluir um contato não apaga o histórico de mensagens.
+9. Convites e contatos são locais a cada instalação. A aceitação de um único convite agora cria o contato em ambos os dispositivos, sem exigir que cada lado gere e digite um segundo convite.
+10. O caminho `gochat invite` cria e imprime o convite, mas encerra o comando ao terminar. A presença fica online apenas enquanto o processo/host estiver ativo. Para o convite ser aceito e o peer continuar alcançável, o GoChat do criador precisa permanecer em execução; o TUI mantém o host ativo enquanto está aberto.
+11. A opção de adicionar no TUI normaliza o código para maiúsculas e remove hífens. A API aceita código com ou sem hífens.
 
 ### 3.3 Presença e endereços
 
@@ -154,7 +155,9 @@ Todas as rotas são montadas sem prefixo. Erros JSON têm `{ "status": <HTTP>, "
 |---|---|---|---|
 | `/heartbeat` | POST | Entrada `{ "peer_id": string, "addresses": [string] }`; sucesso `204 No Content`. | PeerID válido; de 1 a 16 multiaddrs sintaticamente válidos. Substitui a presença/endereço no Redis por 5 min. |
 | `/invite` | POST | Entrada `{ "peer_id": string }`; sucesso `{ "code": "XXX-XXX-XXX" }`. | PeerID válido; código aleatório guardado por 10 min. |
-| `/resolve` | POST | Entrada `{ "code": string }`; sucesso `{ "peer_id": string, "addresses": [...] }`. | Consome convite. Convite inválido/expirado ou peer offline retorna 404. |
+| `/resolve` | POST | Entrada `{ "code": string, "peer_id": string }`; sucesso `{ "peer_id": string, "addresses": [...] }`. | Aceita código com ou sem hífens; consome o convite e cria o evento de aceitação atomicamente. Convite inválido/expirado ou algum peer offline retorna 404. |
+| `/acceptances?peer_id=<PeerID>` | GET | Sucesso `{ "acceptances": [{ "invite_id": string, "peer_id": string, "addresses": [...], "accepted_at": time }] }`. | Retorna eventos ainda não confirmados; metadados expiram em até 10 min. O TUI consulta a cada 2 s até 10 min após emitir convite. |
+| `/acceptances/ack` | POST | Entrada `{ "peer_id": string, "invite_ids": [string] }`; sucesso `204 No Content`. | Remove os eventos já persistidos localmente pelo criador; limite de 100 IDs por chamada. |
 | `/observer` | GET | Sucesso `{ "address": "/ip4/.../udp/4001/quic-v1/p2p/<PeerID>" }`. | `503` se observer não estiver habilitado; não transporta mensagens. |
 | Qualquer rota desconhecida | Qualquer | Erro JSON `404`. | — |
 
@@ -163,8 +166,9 @@ Método incorreto retorna `405`. Falhas internas de persistência/serviço retor
 ### Persistência do Discovery em Redis
 
 - `peer:<PeerID>` → JSON array de endereços, TTL 5 minutos.
-- `invite:<código>` → PeerID, TTL 10 minutos; resolução faz leitura e remoção atômica via `GETDEL`.
-- Discovery não guarda histórico de mensagens, payloads P2P nem conteúdo de chat.
+- `invite:<código>` → PeerID, TTL 10 minutos; aceitação consome o convite e publica o evento em uma operação Lua atômica.
+- `acceptances:<PeerID>` → hash temporário de aceitações contendo apenas ID do convite, PeerID, endereços e timestamp; eventos são removidos após confirmação do cliente e expiram em 10 minutos.
+- Discovery não guarda histórico, payloads P2P nem conteúdo de chat; a fila de aceitação é exclusivamente sinalização de metadados.
 - A implementação atual usa Redis sem autenticação no Compose. A porta 6379 não deve ser liberada publicamente por security group/firewall.
 
 ## 6. Protocolo P2P
@@ -337,13 +341,14 @@ Faz preflight de Git, Docker, Docker Compose, Buildx (mínimo 0.17.0), builder `
 Os critérios abaixo descrevem como validar o comportamento pretendido. A passagem deles depende de conectividade de rede real e não é inferida apenas pelo sucesso de build.
 
 1. Duas instalações geram PeerIDs distintos; reiniciar cada instalação preserva seu próprio PeerID.
-2. Com ambos online, convite ainda válido resolve uma única vez e devolve PeerID + multiaddrs do criador.
-3. O TUI salva o contato, registra endereços compatíveis com o PeerID e reabre o contato após reinício.
-4. Uma mensagem válida é gravada localmente antes do envio, chega ao destinatário, aparece no histórico e só é considerada `delivered` no remetente após ACK.
-5. Retransmitir o mesmo ID não duplica a mensagem; ACK só é enviado depois da persistência do destinatário.
-6. Uma falha de conexão mantém a mensagem local na outbox e apresenta estado/erro compreensível; não envia conteúdo ao Discovery.
-7. `GET /observer` retorna o multiaddr completo do observer quando configurado e 503 quando não configurado.
-8. Mudança de rede, porta bloqueada, NAT incompatível ou observer indisponível deve ser comunicada como condição de rede, sem alegar garantia de conexão.
+2. Com ambos online, convite ainda válido é aceito uma única vez, devolve PeerID + multiaddrs do criador e cria um evento para o criador.
+3. O peer que aceita e o peer que criou o convite salvam um ao outro localmente, tentam uma conexão direta e abrem o chat; o TUI do criador descobre a aceitação em até aproximadamente 2 s enquanto o convite estiver válido.
+4. O TUI para de consultar aceitações após 10 minutos da criação do convite; eventos persistem temporariamente até confirmação ou expiração.
+5. Uma mensagem válida é gravada localmente antes do envio, chega ao destinatário, aparece no histórico e só é considerada `delivered` no remetente após ACK.
+6. Retransmitir o mesmo ID não duplica a mensagem; ACK só é enviado depois da persistência do destinatário.
+7. Uma falha de conexão mantém a mensagem local na outbox e apresenta estado/erro compreensível; não envia conteúdo ao Discovery.
+8. `GET /observer` retorna o multiaddr completo do observer quando configurado e 503 quando não configurado.
+9. Mudança de rede, porta bloqueada, NAT incompatível ou observer indisponível deve ser comunicada como condição de rede, sem alegar garantia de conexão.
 
 ## 14. Fontes de verdade no repositório
 

@@ -32,7 +32,13 @@ type inviteRequest struct {
 }
 
 type resolveRequest struct {
-	Code string `json:"code"`
+	Code   string `json:"code"`
+	PeerID string `json:"peer_id"`
+}
+
+type acknowledgeAcceptancesRequest struct {
+	PeerID    string   `json:"peer_id"`
+	InviteIDs []string `json:"invite_ids"`
 }
 
 type inviteResponse struct {
@@ -42,6 +48,10 @@ type inviteResponse struct {
 type resolveResponse struct {
 	PeerID    string   `json:"peer_id"`
 	Addresses []string `json:"addresses"`
+}
+
+type acceptancesResponse struct {
+	Acceptances []service.Acceptance `json:"acceptances"`
 }
 
 type observerResponse struct {
@@ -115,18 +125,20 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if req.Code == "" {
-		writeError(w, http.StatusBadRequest, "code is required")
+	if req.Code == "" || !validPeerID(req.PeerID) {
+		writeError(w, http.StatusBadRequest, "code and valid peer_id are required")
 		return
 	}
 
-	resolvedPeer, err := h.service.ResolveInvite(r.Context(), req.Code)
+	resolvedPeer, err := h.service.ResolveInvite(r.Context(), req.Code, req.PeerID)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidInvite):
 			writeError(w, http.StatusNotFound, "invalid or expired invite")
 		case errors.Is(err, service.ErrPeerOffline):
 			writeError(w, http.StatusNotFound, "peer is offline")
+		case errors.Is(err, service.ErrSelfInvite):
+			writeError(w, http.StatusBadRequest, "cannot accept your own invite")
 		default:
 			writeError(w, http.StatusInternalServerError, "internal server error")
 		}
@@ -137,6 +149,42 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		PeerID:    resolvedPeer.PeerID,
 		Addresses: resolvedPeer.Addresses,
 	})
+}
+
+func (h *Handler) Acceptances(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	peerID := r.URL.Query().Get("peer_id")
+	if !validPeerID(peerID) {
+		writeError(w, http.StatusBadRequest, "valid peer_id is required")
+		return
+	}
+	acceptances, err := h.service.ListAcceptances(r.Context(), peerID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, acceptancesResponse{Acceptances: acceptances})
+}
+
+func (h *Handler) AcknowledgeAcceptances(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	var req acknowledgeAcceptancesRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if !validPeerID(req.PeerID) || len(req.InviteIDs) > 100 {
+		writeError(w, http.StatusBadRequest, "valid peer_id and at most 100 invite_ids are required")
+		return
+	}
+	if err := h.service.AcknowledgeAcceptances(r.Context(), req.PeerID, req.InviteIDs); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Observer returns the public libp2p multiaddress of the address observer.

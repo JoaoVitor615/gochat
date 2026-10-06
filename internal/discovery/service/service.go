@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/JoaoVitor615/gochat/internal/discovery/repository"
@@ -13,6 +14,7 @@ import (
 var (
 	ErrInvalidInvite = errors.New("invalid or expired invite")
 	ErrPeerOffline   = errors.New("peer is offline")
+	ErrSelfInvite    = errors.New("cannot accept own invite")
 )
 
 type Service struct {
@@ -23,6 +25,8 @@ type ResolvedPeer struct {
 	PeerID    string
 	Addresses []string
 }
+
+type Acceptance = repository.Acceptance
 
 func New(repository repository.Repository) *Service {
 	return &Service{repository: repository}
@@ -49,29 +53,37 @@ func (s *Service) CreateInvite(ctx context.Context, peerID string) (string, erro
 	return code, nil
 }
 
-func (s *Service) ResolveInvite(ctx context.Context, code string) (ResolvedPeer, error) {
+func (s *Service) ResolveInvite(ctx context.Context, code, acceptingPeerID string) (ResolvedPeer, error) {
 	code, ok := normalizeInviteCode(code)
 	if !ok {
 		return ResolvedPeer{}, ErrInvalidInvite
 	}
 
-	peerID, err := s.repository.GetAndDeleteInvite(ctx, code)
+	peerID, addresses, err := s.repository.AcceptInvite(ctx, code, acceptingPeerID, time.Now().UTC())
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
+		switch {
+		case errors.Is(err, repository.ErrNotFound):
 			return ResolvedPeer{}, ErrInvalidInvite
-		}
-		return ResolvedPeer{}, fmt.Errorf("get invite: %w", err)
-	}
-
-	addresses, err := s.repository.GetPeer(ctx, peerID)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
+		case errors.Is(err, repository.ErrPeerOffline):
 			return ResolvedPeer{}, ErrPeerOffline
+		case errors.Is(err, repository.ErrSelfInvite):
+			return ResolvedPeer{}, ErrSelfInvite
+		default:
+			return ResolvedPeer{}, fmt.Errorf("accept invite: %w", err)
 		}
-		return ResolvedPeer{}, fmt.Errorf("get peer: %w", err)
 	}
-
 	return ResolvedPeer{PeerID: peerID, Addresses: addresses}, nil
+}
+
+func (s *Service) ListAcceptances(ctx context.Context, peerID string) ([]Acceptance, error) {
+	return s.repository.ListAcceptances(ctx, peerID)
+}
+
+func (s *Service) AcknowledgeAcceptances(ctx context.Context, peerID string, inviteIDs []string) error {
+	if len(inviteIDs) > 100 {
+		return errors.New("at most 100 invite IDs can be acknowledged at once")
+	}
+	return s.repository.AcknowledgeAcceptances(ctx, peerID, inviteIDs)
 }
 
 func normalizeInviteCode(code string) (string, bool) {

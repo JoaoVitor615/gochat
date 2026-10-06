@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -67,14 +68,31 @@ func (c *Client) CreateInvite(ctx context.Context, peerID string) (*CreateInvite
 	return &createInviteRes, nil
 }
 
-func (c *Client) AddPeer(ctx context.Context, inviteCode string) (*AddPeerResponse, error) {
-	reqBody := &ResolveInviteReq{Code: inviteCode}
+func (c *Client) AddPeer(ctx context.Context, inviteCode, peerID string) (*AddPeerResponse, error) {
+	reqBody := &ResolveInviteReq{Code: inviteCode, PeerID: peerID}
 
 	var addPeerRes AddPeerResponse
 	if err := c.doJSON(ctx, http.MethodPost, ADD_PEER_ENDPOINT, reqBody, &addPeerRes); err != nil {
 		return nil, fmt.Errorf("resolve invite: %w", err)
 	}
 	return &addPeerRes, nil
+}
+
+func (c *Client) ListAcceptances(ctx context.Context, peerID string) (*ListAcceptancesResponse, error) {
+	endpoint := ACCEPTANCES_ENDPOINT + "?peer_id=" + url.QueryEscape(peerID)
+	var response ListAcceptancesResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response); err != nil {
+		return nil, fmt.Errorf("list invite acceptances: %w", err)
+	}
+	return &response, nil
+}
+
+func (c *Client) AcknowledgeAcceptances(ctx context.Context, peerID string, inviteIDs []string) error {
+	reqBody := &AcknowledgeAcceptancesReq{PeerID: peerID, InviteIDs: inviteIDs}
+	if err := c.doJSON(ctx, http.MethodPost, ACK_ACCEPTANCES_ENDPOINT, reqBody, nil); err != nil {
+		return fmt.Errorf("acknowledge invite acceptances: %w", err)
+	}
+	return nil
 }
 
 func (c *Client) Heartbeat(ctx context.Context, peerID string, addresses []string) error {

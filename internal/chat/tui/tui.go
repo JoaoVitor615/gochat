@@ -19,7 +19,9 @@ import (
 // PeerAPI is the Discovery API functionality needed by the TUI.
 type PeerAPI interface {
 	CreateInvite(context.Context, string) (*client.CreateInviteResponse, error)
-	AddPeer(context.Context, string) (*client.AddPeerResponse, error)
+	AddPeer(context.Context, string, string) (*client.AddPeerResponse, error)
+	ListAcceptances(context.Context, string) (*client.ListAcceptancesResponse, error)
+	AcknowledgeAcceptances(context.Context, string, []string) error
 }
 
 // PeerStore is the local contact persistence needed by the TUI.
@@ -32,6 +34,7 @@ type PeerStore interface {
 type MessageSender interface {
 	Send(context.Context, string, string) (messaging.SendResult, error)
 	AddPeerAddresses(string, []string) error
+	ConnectPeer(context.Context, string) error
 }
 
 type peer struct {
@@ -50,45 +53,61 @@ const (
 )
 
 type model struct {
-	ctx         context.Context
-	api         PeerAPI
-	peerStore   PeerStore
-	sender      MessageSender
-	localID     string
-	width       int
-	height      int
-	selected    int
-	active      int
-	panel       panel
-	code        string
-	invite      string
-	loading     bool
-	errText     string
-	peers       []peer
-	messages    []storage.StoredMessage
-	hasOlder    bool
-	loadingChat bool
-	sending     bool
-	input       string
-	chatNotice  string
-	scrollBack  int
+	ctx                    context.Context
+	api                    PeerAPI
+	peerStore              PeerStore
+	sender                 MessageSender
+	localID                string
+	width                  int
+	height                 int
+	selected               int
+	active                 int
+	panel                  panel
+	code                   string
+	invite                 string
+	acceptancePollUntil    time.Time
+	acceptancePollInFlight bool
+	loading                bool
+	errText                string
+	peers                  []peer
+	messages               []storage.StoredMessage
+	hasOlder               bool
+	loadingChat            bool
+	sending                bool
+	input                  string
+	chatNotice             string
+	scrollBack             int
 }
 
 type inviteResult struct {
-	code string
-	err  error
+	code      string
+	createdAt time.Time
+	err       error
 }
 
 type addPeerResult struct {
 	peer           *client.AddPeerResponse
 	err            error
 	persistenceErr error
+	connectionErr  error
 	lastSeenAt     time.Time
+}
+
+type acceptancesResult struct {
+	peers []acceptedPeerResult
+	err   error
+}
+
+type acceptedPeerResult struct {
+	acceptance     client.InviteAcceptance
+	persistenceErr error
+	connectionErr  error
 }
 
 const (
 	messagePageSize = 50
 	refreshInterval = 2 * time.Second
+	inviteLifetime  = 10 * time.Minute
 )
 
 type historyResult struct {
@@ -145,6 +164,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 	case refreshTick:
 		commands := []tea.Cmd{refreshTickCmd()}
+		if !m.acceptancePollUntil.IsZero() && time.Now().Before(m.acceptancePollUntil) && !m.acceptancePollInFlight {
+			m.acceptancePollInFlight = true
+			commands = append(commands, m.listAcceptancesCmd())
+		}
 		if peerID := m.activePeerID(); peerID != "" && m.scrollBack == 0 && !m.loadingChat {
 			m.loadingChat = true
 			commands = append(commands, m.loadHistoryCmd(peerID, nil, false))
@@ -198,6 +221,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case inviteResult:
 		m.loading = false
 		m.invite, m.errText = msg.code, errorText(msg.err)
+		if msg.err == nil && msg.code != "" {
+			m.acceptancePollUntil = msg.createdAt.Add(inviteLifetime)
+			m.acceptancePollInFlight = false
+		}
 	case addPeerResult:
 		m.loading = false
 		if msg.err != nil {
@@ -219,6 +246,46 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.panel, m.code, m.errText = noPanel, "", ""
+		if msg.connectionErr != nil {
+			m.chatNotice = "Peer salvo; conexão P2P direta falhou: " + msg.connectionErr.Error()
+		} else {
+			m.chatNotice = "Conexão P2P direta estabelecida."
+		}
+	case acceptancesResult:
+		m.acceptancePollInFlight = false
+		if msg.err != nil {
+			if m.panel == invitePanel {
+				m.errText = "Falha ao consultar convites aceitos: " + msg.err.Error()
+			}
+			return m, nil
+		}
+		if len(msg.peers) == 0 {
+			return m, nil
+		}
+		m.acceptancePollUntil = time.Time{}
+		for _, accepted := range msg.peers {
+			m.upsertPeer(peer{
+				id:         accepted.acceptance.PeerID,
+				addresses:  accepted.acceptance.Addresses,
+				lastSeenAt: accepted.acceptance.AcceptedAt,
+			})
+		}
+		accepted := msg.peers[len(msg.peers)-1]
+		m.selected = m.peerIndex(accepted.acceptance.PeerID)
+		m.active = m.selected
+		m.messages = nil
+		m.hasOlder = false
+		m.scrollBack = 0
+		m.loadingChat = true
+		m.panel, m.invite, m.errText = noPanel, "", ""
+		if accepted.persistenceErr != nil {
+			m.chatNotice = "Convite aceito, mas o contato não foi salvo localmente: " + accepted.persistenceErr.Error()
+		} else if accepted.connectionErr != nil {
+			m.chatNotice = "Convite aceito; conexão P2P direta falhou: " + accepted.connectionErr.Error()
+		} else {
+			m.chatNotice = "Convite aceito; conexão P2P direta estabelecida."
+		}
+		return m, m.loadHistoryCmd(m.activePeerID(), nil, false)
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
@@ -415,20 +482,21 @@ func sortedMessages(messages []storage.StoredMessage) []storage.StoredMessage {
 
 func (m model) createInviteCmd() tea.Cmd {
 	return func() tea.Msg {
+		createdAt := time.Now()
 		response, err := m.api.CreateInvite(m.ctx, m.localID)
 		if err != nil {
-			return inviteResult{err: err}
+			return inviteResult{createdAt: createdAt, err: err}
 		}
 		if response == nil {
-			return inviteResult{err: fmt.Errorf("a API não retornou um código de convite")}
+			return inviteResult{createdAt: createdAt, err: fmt.Errorf("a API não retornou um código de convite")}
 		}
-		return inviteResult{code: response.Code}
+		return inviteResult{code: response.Code, createdAt: createdAt}
 	}
 }
 
 func (m model) addPeerCmd(code string) tea.Cmd {
 	return func() tea.Msg {
-		response, err := m.api.AddPeer(m.ctx, code)
+		response, err := m.api.AddPeer(m.ctx, code, m.localID)
 		result := addPeerResult{peer: response, err: err}
 		if err != nil || response == nil || response.PeerID == "" {
 			return result
@@ -446,7 +514,52 @@ func (m model) addPeerCmd(code string) tea.Cmd {
 			PeerID: response.PeerID, AddedAt: result.lastSeenAt,
 			LastSeenAt: result.lastSeenAt, Addresses: response.Addresses,
 		})
+		if result.persistenceErr == nil {
+			result.connectionErr = m.sender.ConnectPeer(m.ctx, response.PeerID)
+		}
 		return result
+	}
+}
+
+func (m model) listAcceptancesCmd() tea.Cmd {
+	return func() tea.Msg {
+		response, err := m.api.ListAcceptances(m.ctx, m.localID)
+		if err != nil {
+			return acceptancesResult{err: err}
+		}
+		if response == nil || len(response.Acceptances) == 0 {
+			return acceptancesResult{}
+		}
+
+		results := make([]acceptedPeerResult, 0, len(response.Acceptances))
+		acknowledge := make([]string, 0, len(response.Acceptances))
+		for _, acceptance := range response.Acceptances {
+			if acceptance.InviteID == "" || acceptance.PeerID == "" {
+				return acceptancesResult{err: fmt.Errorf("Discovery retornou uma aceitação inválida")}
+			}
+			if err := m.sender.AddPeerAddresses(acceptance.PeerID, acceptance.Addresses); err != nil {
+				return acceptancesResult{err: fmt.Errorf("registrar endereços do peer aceito: %w", err)}
+			}
+			acceptedAt := acceptance.AcceptedAt
+			if acceptedAt.IsZero() {
+				acceptedAt = time.Now().UTC()
+			}
+			if err := m.peerStore.SavePeer(m.ctx, storage.Peer{
+				PeerID: acceptance.PeerID, AddedAt: acceptedAt,
+				LastSeenAt: acceptedAt, Addresses: acceptance.Addresses,
+			}); err != nil {
+				return acceptancesResult{err: fmt.Errorf("salvar peer aceito localmente: %w", err)}
+			}
+			acknowledge = append(acknowledge, acceptance.InviteID)
+			results = append(results, acceptedPeerResult{
+				acceptance:    acceptance,
+				connectionErr: m.sender.ConnectPeer(m.ctx, acceptance.PeerID),
+			})
+		}
+		if err := m.api.AcknowledgeAcceptances(m.ctx, m.localID, acknowledge); err != nil {
+			return acceptancesResult{err: err}
+		}
+		return acceptancesResult{peers: results}
 	}
 }
 

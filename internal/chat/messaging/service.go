@@ -15,6 +15,7 @@ import (
 	"github.com/JoaoVitor615/gochat/internal/chat/p2p"
 	"github.com/JoaoVitor615/gochat/internal/chat/storage"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	ma "github.com/multiformats/go-multiaddr"
@@ -84,6 +85,30 @@ func (s *Service) AddPeerAddresses(peerIDString string, addressStrings []string)
 
 	s.host.Peerstore().ClearAddrs(peerID)
 	s.host.Peerstore().AddAddrs(peerID, addresses, peerstore.PermanentAddrTTL)
+	return nil
+}
+
+// ConnectPeer establishes a direct libp2p connection using addresses already
+// registered for the peer. It never routes through the Discovery service.
+func (s *Service) ConnectPeer(ctx context.Context, peerIDString string) error {
+	if ctx == nil || s == nil || s.host == nil {
+		return errors.New("connect peer: context and running P2P host are required")
+	}
+	peerID, err := peer.Decode(peerIDString)
+	if err != nil {
+		return fmt.Errorf("connect peer: invalid peer ID: %w", err)
+	}
+	if s.host.Network().Connectedness(peerID) == network.Connected {
+		return nil
+	}
+	connectCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	if err := s.host.Connect(connectCtx, peer.AddrInfo{ID: peerID}); err != nil {
+		if s.host.Network().Connectedness(peerID) == network.Connected {
+			return nil
+		}
+		return fmt.Errorf("connect directly to peer %s: %w", peerID, err)
+	}
 	return nil
 }
 
