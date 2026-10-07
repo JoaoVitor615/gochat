@@ -28,6 +28,7 @@ type PeerAPI interface {
 type PeerStore interface {
 	ListPeers(context.Context) ([]storage.Peer, error)
 	SavePeer(context.Context, storage.Peer) error
+	SetPeerDisplayName(context.Context, string, string) error
 	ListMessages(context.Context, string, *message.Message, int) ([]storage.StoredMessage, error)
 }
 
@@ -50,6 +51,7 @@ const (
 	noPanel panel = iota
 	addPanel
 	invitePanel
+	nicknamePanel
 )
 
 type model struct {
@@ -65,6 +67,8 @@ type model struct {
 	panel                  panel
 	code                   string
 	invite                 string
+	nicknameInput          string
+	nicknamePeerID         string
 	acceptancePollUntil    time.Time
 	acceptancePollInFlight bool
 	loading                bool
@@ -303,6 +307,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.panel == nicknamePanel {
+			return m.updateNicknamePanel(msg)
+		}
 		if m.active >= 0 {
 			return m.updateChat(msg)
 		}
@@ -335,6 +342,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "i":
 			m.panel, m.invite, m.errText, m.loading = invitePanel, "", "", true
 			return m, m.createInviteCmd()
+		case "n":
+			if m.selected >= 0 && m.selected < len(m.peers) {
+				m.panel = nicknamePanel
+				m.nicknamePeerID = m.peers[m.selected].id
+				m.nicknameInput = m.peers[m.selected].displayName
+				m.errText = ""
+			}
 		}
 	}
 	return m, nil
@@ -374,9 +388,22 @@ func (m model) updateChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.active, m.input, m.chatNotice = -1, "", ""
+	case "ctrl+n":
+		peerID := m.activePeerID()
+		if peerID != "" {
+			m.panel = nicknamePanel
+			m.nicknamePeerID = peerID
+			m.nicknameInput = m.peers[m.active].displayName
+			m.errText = ""
+			return m, nil
+		}
 	case "enter":
 		if m.sending || strings.TrimSpace(m.input) == "" {
 			return m, nil
+		}
+		rawInput := strings.TrimSpace(m.input)
+		if isNicknameCommand(rawInput) {
+			return m.handleNicknameCommand(rawInput)
 		}
 		if m.sender == nil {
 			m.chatNotice = "O serviço de envio não está disponível."
@@ -407,6 +434,111 @@ func (m model) updateChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		if msg.Type == tea.KeyRunes && !m.sending {
 			m.input += string(msg.Runes)
+		}
+	}
+	return m, nil
+}
+
+func isNicknameCommand(input string) bool {
+	return input == "/nick" || strings.HasPrefix(input, "/nick ") ||
+		input == "/apelido" || strings.HasPrefix(input, "/apelido ") ||
+		input == "/nickname" || strings.HasPrefix(input, "/nickname ")
+}
+
+func (m model) handleNicknameCommand(input string) (tea.Model, tea.Cmd) {
+	peerID := m.activePeerID()
+	if peerID == "" {
+		m.input = ""
+		return m, nil
+	}
+	var newName string
+	var hasArg bool
+	if strings.HasPrefix(input, "/nick ") {
+		newName, hasArg = strings.TrimSpace(strings.TrimPrefix(input, "/nick ")), true
+	} else if strings.HasPrefix(input, "/apelido ") {
+		newName, hasArg = strings.TrimSpace(strings.TrimPrefix(input, "/apelido ")), true
+	} else if strings.HasPrefix(input, "/nickname ") {
+		newName, hasArg = strings.TrimSpace(strings.TrimPrefix(input, "/nickname ")), true
+	}
+
+	if !hasArg {
+		// Open nickname dialog when command is invoked without argument
+		m.panel = nicknamePanel
+		m.nicknamePeerID = peerID
+		m.nicknameInput = m.peers[m.active].displayName
+		m.errText = ""
+		m.input = ""
+		return m, nil
+	}
+
+	if newName == "-" || newName == `""` || newName == "''" {
+		newName = ""
+	}
+
+	if err := m.peerStore.SetPeerDisplayName(m.ctx, peerID, newName); err != nil {
+		m.chatNotice = "Falha ao salvar apelido: " + err.Error()
+	} else {
+		if idx := m.peerIndex(peerID); idx >= 0 {
+			m.peers[idx].displayName = newName
+		}
+		if newName != "" {
+			m.chatNotice = fmt.Sprintf("Apelido atualizado para %q.", newName)
+		} else {
+			m.chatNotice = "Apelido removido."
+		}
+	}
+	m.input = ""
+	return m, nil
+}
+
+func (m model) updateNicknamePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.panel, m.nicknameInput, m.nicknamePeerID, m.errText = noPanel, "", "", ""
+	case "enter":
+		targetPeerID := m.nicknamePeerID
+		if targetPeerID == "" {
+			if m.active >= 0 && m.active < len(m.peers) {
+				targetPeerID = m.peers[m.active].id
+			} else if m.selected >= 0 && m.selected < len(m.peers) {
+				targetPeerID = m.peers[m.selected].id
+			}
+		}
+		if targetPeerID == "" {
+			m.panel = noPanel
+			return m, nil
+		}
+		newName := strings.TrimSpace(m.nicknameInput)
+		if err := m.peerStore.SetPeerDisplayName(m.ctx, targetPeerID, newName); err != nil {
+			m.errText = "Falha ao salvar apelido: " + err.Error()
+			return m, nil
+		}
+		if idx := m.peerIndex(targetPeerID); idx >= 0 {
+			m.peers[idx].displayName = newName
+		}
+		m.panel, m.nicknameInput, m.nicknamePeerID, m.errText = noPanel, "", "", ""
+		if newName != "" {
+			m.chatNotice = fmt.Sprintf("Apelido definido: %s", newName)
+		} else {
+			m.chatNotice = "Apelido removido."
+		}
+	case "backspace", "ctrl+h":
+		if runes := []rune(m.nicknameInput); len(runes) > 0 {
+			m.nicknameInput = string(runes[:len(runes)-1])
+		}
+	case "ctrl+u":
+		m.nicknameInput = ""
+	case "space", " ":
+		if len([]rune(m.nicknameInput)) < 30 {
+			m.nicknameInput += " "
+		}
+	default:
+		if msg.Type == tea.KeyRunes {
+			for _, r := range msg.Runes {
+				if len([]rune(m.nicknameInput)) < 30 {
+					m.nicknameInput += string(r)
+				}
+			}
 		}
 	}
 	return m, nil
@@ -607,11 +739,13 @@ func (m model) View() string {
 	}
 
 	rows = append(rows, borderStyle.Render("├"+strings.Repeat("─", sideWidth)+"┴"+strings.Repeat("─", mainWidth)+"┤"))
-	footer := " ↑↓/j k navegar  ·  enter abrir  ·  a adicionar  ·  i convidar  ·  q sair"
+	footer := " ↑↓/j k navegar  ·  enter abrir  ·  a adicionar  ·  i convidar  ·  n apelido  ·  q sair"
 	if m.active >= 0 {
-		footer = " enter enviar  ·  pgup histórico  ·  esc voltar  ·  ctrl+u limpar"
+		footer = " enter enviar  ·  pgup histórico  ·  ctrl+n apelido  ·  esc voltar  ·  ctrl+u limpar"
 	}
-	if m.panel != noPanel {
+	if m.panel == nicknamePanel {
+		footer = " enter salvar  ·  esc cancelar  ·  deixe vazio para remover apelido"
+	} else if m.panel != noPanel {
 		footer = " esc fechar  ·  convites expiram após 10 minutos"
 	}
 	rows = append(rows, frameLine(mutedStyle.Render(footer), innerWidth))
@@ -656,7 +790,11 @@ func (m model) mainArea(width, height int) []string {
 		return rows
 	}
 	p := m.peers[m.active]
-	rows[0] = "  " + titleStyle.Render(shortPeerID(p.id))
+	if p.displayName != "" {
+		rows[0] = "  " + titleStyle.Render(p.displayName) + "  " + mutedStyle.Render("("+shortPeerID(p.id)+")")
+	} else {
+		rows[0] = "  " + titleStyle.Render(shortPeerID(p.id))
+	}
 	rows[1] = "  " + mutedStyle.Render(peerLastSeen(p.lastSeenAt))
 	messageBottom := height - 4
 	messageRows := make([]string, 0, height)
@@ -671,6 +809,8 @@ func (m model) mainArea(width, height int) []string {
 			who, status, headingStyle := "Peer", "recebida", mutedStyle
 			if isLocal {
 				who, status, headingStyle = "Você", deliveryLabel(stored.Status), titleStyle
+			} else if p.displayName != "" {
+				who = p.displayName
 			}
 			wrapWidth := max(1, width-6)
 			heading := fmt.Sprintf("%s · %s · %s", who, envelope.CreatedAt.Local().Format("15:04"), status)
@@ -735,6 +875,31 @@ func (m model) dialog(width, height int) []string {
 			instruction = "consultando convite…"
 		}
 		content = []string{titleStyle.Render("ADICIONAR PEER"), "", "Código de convite", "", lipgloss.NewStyle().Foreground(accent).Render("[ " + field + " ]"), "", mutedStyle.Render(instruction)}
+	} else if m.panel == nicknamePanel {
+		targetPeerID := m.nicknamePeerID
+		displayName := ""
+		if idx := m.peerIndex(targetPeerID); idx >= 0 {
+			displayName = m.peers[idx].displayName
+		}
+		contactDesc := shortPeerID(targetPeerID)
+		if displayName != "" {
+			contactDesc += " (" + displayName + ")"
+		}
+		field := m.nicknameInput
+		if field == "" {
+			field = "nenhum apelido (vazio)"
+		}
+		field = ansi.Truncate(field, boxWidth-8, "…")
+		instruction := "digite o apelido · enter salvar · esc cancelar"
+		content = []string{
+			titleStyle.Render("APELIDO DO CONTATO"),
+			"",
+			mutedStyle.Render("Contato: " + contactDesc),
+			"",
+			lipgloss.NewStyle().Foreground(accent).Render("[ " + field + " ]"),
+			"",
+			mutedStyle.Render(instruction),
+		}
 	} else {
 		code := "gerando convite…"
 		if !m.loading {

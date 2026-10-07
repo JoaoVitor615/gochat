@@ -96,8 +96,10 @@ O Discovery não é um servidor de chat: não recebe, persiste nem retransmite c
 
 - A tela inicial lista contatos salvos localmente; presença visual não é uma verificação de conectividade em tempo real.
 - `↑/↓` ou `j/k`: navegar contatos; `Enter`: abrir conversa.
-- `a`: informar código e adicionar peer; `i`: criar convite; `q`: sair da tela inicial.
-- Na conversa, digitar texto e pressionar `Enter` envia; `Backspace` apaga caractere; `Ctrl+U` limpa o campo; `PgUp/PgDn` navega histórico; `Esc` retorna à lista.
+- `a`: informar código e adicionar peer; `i`: criar convite; `n`: definir/editar apelido do contato selecionado; `q`: sair da tela inicial.
+- Na conversa, digitar texto e pressionar `Enter` envia; `Backspace` apaga caractere; `Ctrl+U` limpa o campo; `PgUp/PgDn` navega histórico; `Ctrl+N` abre o diálogo de apelido do contato; `Esc` retorna à lista.
+- É possível definir apelidos via comando direto no chat digitando `/nick <apelido>` ou `/apelido <apelido>` (ou sem argumentos para abrir o diálogo). Para remover o apelido, pode-se deixar vazio no diálogo ou usar `/nick -`.
+- A interface mostra o apelido do contato (e seu PeerID resumido) no cabeçalho da conversa, na lista lateral e como autor das mensagens recebidas.
 - A interface mostra autor, horário local e, para mensagens enviadas, `na fila`, `enviado · aguardando confirmação` ou `entregue`.
 - Mensagens recebidas são exibidas como recebidas. Não existe estado de leitura.
 - O histórico é atualizado a cada 2 segundos quando o usuário está no fim da conversa. Ao rolar para trás, a atualização de topo não substitui a página que está sendo lida.
