@@ -41,6 +41,7 @@ type OutboxEntry struct {
 type Repository interface {
 	Close() error
 	SavePeer(context.Context, Peer) error
+	SetPeerDisplayName(context.Context, string, string) error
 	GetPeer(context.Context, string) (Peer, error)
 	ListPeers(context.Context) ([]Peer, error)
 	DeletePeer(context.Context, string) error
