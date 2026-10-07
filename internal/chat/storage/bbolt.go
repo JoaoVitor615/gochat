@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -159,6 +160,35 @@ func (s *BboltStore) SavePeer(ctx context.Context, peer Peer) error {
 			return fmt.Errorf("encode peer: %w", err)
 		}
 		return bucket.Put([]byte(peer.PeerID), value)
+	})
+}
+
+func (s *BboltStore) SetPeerDisplayName(ctx context.Context, peerID string, displayName string) error {
+	if peerID == "" {
+		return fmt.Errorf("set peer display name: %w", ErrInvalidRecord)
+	}
+	if err := checkContext(ctx); err != nil {
+		return err
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		if err := checkContext(ctx); err != nil {
+			return err
+		}
+		bucket := tx.Bucket(peersBucket)
+		existing := bucket.Get([]byte(peerID))
+		if existing == nil {
+			return ErrNotFound
+		}
+		var saved Peer
+		if err := json.Unmarshal(existing, &saved); err != nil {
+			return fmt.Errorf("decode existing peer: %w", err)
+		}
+		saved.DisplayName = strings.TrimSpace(displayName)
+		value, err := json.Marshal(saved)
+		if err != nil {
+			return fmt.Errorf("encode peer: %w", err)
+		}
+		return bucket.Put([]byte(peerID), value)
 	})
 }
 
