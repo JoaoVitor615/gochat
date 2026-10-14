@@ -10,8 +10,34 @@ type Message struct {
 	SenderPeerID    string    `json:"sender_peer_id,omitempty"`
 	RecipientPeerID string    `json:"recipient_peer_id,omitempty"`
 	CreatedAt       time.Time `json:"created_at,omitempty"`
+	LamportClock    uint64    `json:"lamport_clock,omitempty"`
 	Content         string
 	ProtocolVersion int `json:"protocol_version,omitempty"`
+}
+
+// Compare returns -1 if left < right, 1 if left > right, and 0 if left == right.
+// The primary ordering is causal via LamportClock. Tied clocks are ordered by
+// CreatedAt (UTC), and finally by message ID as a deterministic tie-breaker.
+func Compare(left, right Message) int {
+	if left.LamportClock != right.LamportClock {
+		if left.LamportClock < right.LamportClock {
+			return -1
+		}
+		return 1
+	}
+	if !left.CreatedAt.Equal(right.CreatedAt) {
+		if left.CreatedAt.Before(right.CreatedAt) {
+			return -1
+		}
+		return 1
+	}
+	if left.ID < right.ID {
+		return -1
+	}
+	if left.ID > right.ID {
+		return 1
+	}
+	return 0
 }
 
 // FrameType identifies the kind of payload carried by a P2P stream.

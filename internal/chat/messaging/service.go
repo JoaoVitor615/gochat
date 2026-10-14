@@ -132,24 +132,36 @@ func (s *Service) Send(ctx context.Context, recipientPeerID, content string) (Se
 	if s.localPeerID == "" || peerID.String() == s.localPeerID {
 		return SendResult{}, errors.New("send message: a different local and recipient peer ID are required")
 	}
+	peerIDStr := peerID.String()
 	messageID, err := newMessageID()
 	if err != nil {
 		return SendResult{}, fmt.Errorf("generate message ID: %w", err)
 	}
+
+	unlock := s.lockPeer(peerIDStr)
+	latestClock, err := s.store.GetLatestLamportClock(ctx, peerIDStr)
+	if err != nil {
+		unlock()
+		return SendResult{}, fmt.Errorf("get latest lamport clock: %w", err)
+	}
+
 	envelope := message.Message{
 		ID:              messageID,
 		SenderPeerID:    s.localPeerID,
-		RecipientPeerID: peerID.String(),
+		RecipientPeerID: peerIDStr,
 		CreatedAt:       time.Now().UTC(),
+		LamportClock:    latestClock + 1,
 		Content:         content,
 		ProtocolVersion: message.CurrentProtocolVersion,
 	}
-	if err := s.store.QueueMessage(ctx, peerID.String(), envelope); err != nil {
+	if err := s.store.QueueMessage(ctx, peerIDStr, envelope); err != nil {
+		unlock()
 		return SendResult{}, fmt.Errorf("queue message locally: %w", err)
 	}
+	unlock()
 
 	result := SendResult{Message: envelope, Status: message.DeliveryPending}
-	result.DeliveryError = s.RetryPeer(ctx, peerID.String())
+	result.DeliveryError = s.RetryPeer(ctx, peerIDStr)
 	stored, err := s.store.GetMessage(context.Background(), envelope.ID)
 	if err != nil {
 		return result, errors.Join(result.DeliveryError, fmt.Errorf("read queued message status: %w", err))

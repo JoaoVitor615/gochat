@@ -89,7 +89,7 @@ O Discovery não é um servidor de chat: não recebe, persiste nem retransmite c
 9. Erro de rede não apaga a mensagem local. A API `Send` devolve resultado que pode conter `DeliveryError` com a mensagem já enfileirada.
 10. O app tenta novamente a outbox na inicialização e quando uma conexão com um peer é estabelecida. Um novo envio também tenta mensagens pendentes daquele peer. Não há um worker periódico independente de retries.
 11. O timeout máximo para esperar ACK é 15 segundos, limitado também pelo deadline do contexto.
-12. A conversa é ordenada por `CreatedAt`, com ID como desempate. O TUI carrega páginas de 50 mensagens e consulta histórico periodicamente enquanto está no fim da conversa.
+12. A conversa é ordenada causalmente por `LamportClock` (relógio lógico). Casos de empate utilizam `CreatedAt` (UTC 0) e o ID da mensagem como desempates determinísticos. O TUI exibe o horário formatado no fuso horário local do usuário e consulta histórico periodicamente enquanto está no fim da conversa.
 13. Status e outbox são metadados locais; status de entrega não é transmitido no envelope P2P.
 
 ### 3.5 TUI
@@ -189,7 +189,7 @@ Método incorreto retorna `405`. Falhas internas de persistência/serviço retor
 Os frames são JSON delimitado por newline, um frame por stream. O parser limita cada frame a 64 KiB, rejeita campos desconhecidos, JSON incompleto, valores extras e tipos não suportados.
 
 ```json
-{"type":"message","message":{"id":"...","sender_peer_id":"...","recipient_peer_id":"...","created_at":"...","Content":"...","protocol_version":2}}
+{"type":"message","message":{"id":"...","sender_peer_id":"...","recipient_peer_id":"...","created_at":"...","lamport_clock":1,"Content":"...","protocol_version":2}}
 ```
 
 ```json
@@ -216,16 +216,16 @@ Se persistir no destinatário falhar, nenhum ACK de sucesso é emitido. Se o ACK
 - Identidade: `~/.gochat/identity.key`, arquivo `0600`.
 - Banco: `~/.gochat/gochat.db`, diretório `0700`, arquivo `0600`.
 - Banco bbolt local, sem servidor e sem sincronização entre computadores.
-- Versão de schema atual: `1`. Versão mais nova que a suportada falha ao abrir; versão antiga exige migração explícita, que ainda não foi implementada.
+- Versão de schema atual: `2`. Suporta migração automática da versão 1 para a 2 (reindexação das chaves de messages e outbox com bytes big-endian do LamportClock). Versão mais nova que a suportada falha ao abrir.
 
 ### Buckets bbolt
 
 | Bucket | Conteúdo |
 |---|---|
 | `peers` | PeerID, nome opcional, data de adição, último horário registrado e endereços cacheados. |
-| `messages` | Mensagens por conversa, ordenadas por timestamp e ID; inclui envelope e status local. |
+| `messages` | Mensagens por conversa, ordenadas por LamportClock, timestamp (UTC 0) e ID; inclui envelope e status local. |
 | `message_ids` | Índice global ID → chave da mensagem, para leitura rápida e deduplicação. |
-| `outbox` | Mensagens ainda não confirmadas como entregues, ordenadas por timestamp/ID. |
+| `outbox` | Mensagens ainda não confirmadas como entregues, ordenadas por LamportClock/timestamp/ID. |
 | `metadata` | Versão do schema. |
 
 `DeletePeer` apaga apenas o contato; histórico e outbox são mantidos. Mensagens não têm limpeza/expiração implementada.

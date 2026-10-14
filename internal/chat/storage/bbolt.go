@@ -21,7 +21,7 @@ import (
 
 const (
 	databaseFileName = "gochat.db"
-	currentSchema    = uint64(1)
+	currentSchema    = uint64(2)
 	defaultPageSize  = 50
 )
 
@@ -103,8 +103,71 @@ func (s *BboltStore) initializeSchema() error {
 			return fmt.Errorf("database schema %d is newer than supported schema %d", version, currentSchema)
 		}
 		if version < currentSchema {
-			// Future schema changes should add explicit migrations here.
-			return fmt.Errorf("database schema %d requires a migration to schema %d", version, currentSchema)
+			if version == 1 {
+				// Migrate schema 1 to 2: rebuild messagesBucket and outboxBucket keys with lamportBytes
+				messages := tx.Bucket(messagesBucket)
+				ids := tx.Bucket(messageIDsBucket)
+				cursor := messages.Cursor()
+				type keyUpdate struct {
+					oldKey []byte
+					newKey []byte
+					id     []byte
+					value  []byte
+				}
+				var updates []keyUpdate
+				for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+					var stored StoredMessage
+					if err := json.Unmarshal(v, &stored); err == nil {
+						newK := messageKey(stored)
+						if !bytes.Equal(k, newK) {
+							updates = append(updates, keyUpdate{
+								oldKey: bytes.Clone(k),
+								newKey: newK,
+								id:     []byte(stored.Envelope.ID),
+								value:  bytes.Clone(v),
+							})
+						}
+					}
+				}
+				for _, u := range updates {
+					_ = messages.Delete(u.oldKey)
+					_ = messages.Put(u.newKey, u.value)
+					_ = ids.Put(u.id, u.newKey)
+				}
+				outbox := tx.Bucket(outboxBucket)
+				outboxCursor := outbox.Cursor()
+				type outboxUpdate struct {
+					oldKey []byte
+					newKey []byte
+					value  []byte
+				}
+				var oUpdates []outboxUpdate
+				for k, v := outboxCursor.First(); k != nil; k, v = outboxCursor.Next() {
+					var entry OutboxEntry
+					if err := json.Unmarshal(v, &entry); err == nil {
+						newK := outboxKey(entry.Message)
+						if !bytes.Equal(k, newK) {
+							oUpdates = append(oUpdates, outboxUpdate{
+								oldKey: bytes.Clone(k),
+								newKey: newK,
+								value:  bytes.Clone(v),
+							})
+						}
+					}
+				}
+				for _, u := range oUpdates {
+					_ = outbox.Delete(u.oldKey)
+					_ = outbox.Put(u.newKey, u.value)
+				}
+				version = 2
+				var versionBytes [8]byte
+				binary.BigEndian.PutUint64(versionBytes[:], version)
+				if err := metadata.Put(schemaVersionKey, versionBytes[:]); err != nil {
+					return err
+				}
+			} else {
+				return fmt.Errorf("database schema %d requires a migration to schema %d", version, currentSchema)
+			}
 		}
 		return nil
 	})
@@ -396,6 +459,42 @@ func (s *BboltStore) ListMessages(ctx context.Context, peerID string, before *me
 	return messages, nil
 }
 
+// GetLatestLamportClock returns the highest Lamport clock seen in the conversation.
+// Returns 0 if there are no messages in the conversation.
+func (s *BboltStore) GetLatestLamportClock(ctx context.Context, peerID string) (uint64, error) {
+	if peerID == "" {
+		return 0, fmt.Errorf("get latest lamport clock: %w", ErrInvalidRecord)
+	}
+	if err := checkContext(ctx); err != nil {
+		return 0, err
+	}
+	var maxClock uint64
+	err := s.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(messagesBucket)
+		cursor := bucket.Cursor()
+		prefix := conversationPrefix(peerID)
+		upper := append(bytes.Clone(prefix[:len(prefix)-1]), prefix[len(prefix)-1]+1)
+		key, value := cursor.Seek(upper)
+		if key == nil {
+			key, value = cursor.Last()
+		} else {
+			key, value = cursor.Prev()
+		}
+		if key != nil && bytes.HasPrefix(key, prefix) {
+			var stored StoredMessage
+			if err := json.Unmarshal(value, &stored); err != nil {
+				return fmt.Errorf("decode message: %w", err)
+			}
+			maxClock = stored.Envelope.LamportClock
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("get latest lamport clock: %w", err)
+	}
+	return maxClock, nil
+}
+
 func (s *BboltStore) UpdateMessageStatus(ctx context.Context, messageID string, status message.DeliveryStatus) error {
 	if !validStatus(status) {
 		return fmt.Errorf("update message status: %w", ErrInvalidRecord)
@@ -535,12 +634,14 @@ func sameEnvelope(left, right message.Message) bool {
 		left.SenderPeerID == right.SenderPeerID &&
 		left.RecipientPeerID == right.RecipientPeerID &&
 		left.CreatedAt.Equal(right.CreatedAt) &&
+		left.LamportClock == right.LamportClock &&
 		left.Content == right.Content &&
 		left.ProtocolVersion == right.ProtocolVersion
 }
 
 func messageKey(stored StoredMessage) []byte {
 	key := conversationPrefix(stored.ConversationPeerID)
+	key = append(key, lamportBytes(stored.Envelope.LamportClock)...)
 	key = append(key, timestampBytes(stored.Envelope.CreatedAt)...)
 	key = append(key, 0)
 	return append(key, stored.Envelope.ID...)
@@ -548,6 +649,12 @@ func messageKey(stored StoredMessage) []byte {
 
 func conversationPrefix(peerID string) []byte {
 	return append([]byte(peerID), 0)
+}
+
+func lamportBytes(clock uint64) []byte {
+	var encoded [8]byte
+	binary.BigEndian.PutUint64(encoded[:], clock)
+	return encoded[:]
 }
 
 func timestampBytes(timestamp time.Time) []byte {
@@ -558,7 +665,8 @@ func timestampBytes(timestamp time.Time) []byte {
 }
 
 func outboxKey(envelope message.Message) []byte {
-	key := timestampBytes(envelope.CreatedAt)
+	key := lamportBytes(envelope.LamportClock)
+	key = append(key, timestampBytes(envelope.CreatedAt)...)
 	key = append(key, 0)
 	return append(key, envelope.ID...)
 }

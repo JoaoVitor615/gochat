@@ -52,6 +52,7 @@ func HandleStream(ctx context.Context, stream network.Stream, store storage.Repo
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	msg.CreatedAt = msg.CreatedAt.UTC()
 	_, err = store.SaveMessageOnce(ctx, storage.StoredMessage{
 		ConversationPeerID: remotePeerID,
 		Envelope:           msg,

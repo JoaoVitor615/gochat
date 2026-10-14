@@ -49,6 +49,7 @@ type Repository interface {
 	SaveMessageOnce(context.Context, StoredMessage) (bool, error)
 	GetMessage(context.Context, string) (StoredMessage, error)
 	ListMessages(context.Context, string, *message.Message, int) ([]StoredMessage, error)
+	GetLatestLamportClock(context.Context, string) (uint64, error)
 	UpdateMessageStatus(context.Context, string, message.DeliveryStatus) error
 	QueueMessage(context.Context, string, message.Message) error
 	// ListOutbox returns all entries when limit is non-positive.

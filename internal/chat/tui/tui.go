@@ -594,7 +594,7 @@ func sortedMessages(messages []storage.StoredMessage) []storage.StoredMessage {
 	for i := 1; i < len(messages); i++ {
 		for j := i; j > 0; j-- {
 			left, right := messages[j-1].Envelope, messages[j].Envelope
-			if left.CreatedAt.Before(right.CreatedAt) || (left.CreatedAt.Equal(right.CreatedAt) && left.ID <= right.ID) {
+			if message.Compare(left, right) <= 0 {
 				break
 			}
 			messages[j-1], messages[j] = messages[j], messages[j-1]
