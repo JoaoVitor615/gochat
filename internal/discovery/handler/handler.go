@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 
+	"github.com/JoaoVitor615/gochat/internal/auth"
 	"github.com/JoaoVitor615/gochat/internal/discovery/observation"
 	"github.com/JoaoVitor615/gochat/internal/discovery/service"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -25,20 +27,28 @@ type Handler struct {
 type peerRequest struct {
 	PeerID    string   `json:"peer_id"`
 	Addresses []string `json:"addresses"`
+	Timestamp int64    `json:"timestamp"`
+	Signature string   `json:"signature"`
 }
 
 type inviteRequest struct {
-	PeerID string `json:"peer_id"`
+	PeerID    string `json:"peer_id"`
+	Timestamp int64  `json:"timestamp"`
+	Signature string `json:"signature"`
 }
 
 type resolveRequest struct {
-	Code   string `json:"code"`
-	PeerID string `json:"peer_id"`
+	Code      string `json:"code"`
+	PeerID    string `json:"peer_id"`
+	Timestamp int64  `json:"timestamp"`
+	Signature string `json:"signature"`
 }
 
 type acknowledgeAcceptancesRequest struct {
 	PeerID    string   `json:"peer_id"`
 	InviteIDs []string `json:"invite_ids"`
+	Timestamp int64    `json:"timestamp"`
+	Signature string   `json:"signature"`
 }
 
 type inviteResponse struct {
@@ -85,6 +95,12 @@ func (h *Handler) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	payload := auth.HeartbeatPayload(req.PeerID, req.Timestamp, req.Addresses)
+	if err := auth.Verify(req.PeerID, payload, req.Signature, req.Timestamp); err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: invalid signature or expired timestamp")
+		return
+	}
+
 	if err := h.service.Heartbeat(r.Context(), req.PeerID, req.Addresses); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
@@ -104,6 +120,12 @@ func (h *Handler) Invite(w http.ResponseWriter, r *http.Request) {
 	}
 	if !validPeerID(req.PeerID) {
 		writeError(w, http.StatusBadRequest, "invalid peer_id")
+		return
+	}
+
+	payload := auth.InvitePayload(req.PeerID, req.Timestamp)
+	if err := auth.Verify(req.PeerID, payload, req.Signature, req.Timestamp); err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: invalid signature or expired timestamp")
 		return
 	}
 
@@ -127,6 +149,12 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Code == "" || !validPeerID(req.PeerID) {
 		writeError(w, http.StatusBadRequest, "code and valid peer_id are required")
+		return
+	}
+
+	payload := auth.ResolvePayload(req.PeerID, req.Code, req.Timestamp)
+	if err := auth.Verify(req.PeerID, payload, req.Signature, req.Timestamp); err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: invalid signature or expired timestamp")
 		return
 	}
 
@@ -160,6 +188,33 @@ func (h *Handler) Acceptances(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "valid peer_id is required")
 		return
 	}
+
+	timestampStr := r.Header.Get(auth.HeaderTimestamp)
+	if timestampStr == "" {
+		timestampStr = r.URL.Query().Get("timestamp")
+	}
+	sig := r.Header.Get(auth.HeaderSignature)
+	if sig == "" {
+		sig = r.URL.Query().Get("signature")
+	}
+
+	if timestampStr == "" || sig == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized: missing authentication headers")
+		return
+	}
+
+	timestamp, err := strconv.ParseInt(timestampStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid timestamp")
+		return
+	}
+
+	payload := auth.AcceptancesPayload(peerID, timestamp)
+	if err := auth.Verify(peerID, payload, sig, timestamp); err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: invalid signature or expired timestamp")
+		return
+	}
+
 	acceptances, err := h.service.ListAcceptances(r.Context(), peerID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal server error")
@@ -180,6 +235,13 @@ func (h *Handler) AcknowledgeAcceptances(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "valid peer_id and at most 100 invite_ids are required")
 		return
 	}
+
+	payload := auth.AcknowledgeAcceptancesPayload(req.PeerID, req.Timestamp, req.InviteIDs)
+	if err := auth.Verify(req.PeerID, payload, req.Signature, req.Timestamp); err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: invalid signature or expired timestamp")
+		return
+	}
+
 	if err := h.service.AcknowledgeAcceptances(r.Context(), req.PeerID, req.InviteIDs); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return

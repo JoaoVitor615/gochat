@@ -3,7 +3,9 @@ package client
 import "time"
 
 type CreateInviteReq struct {
-	PeerID string `json:"peer_id"`
+	PeerID    string `json:"peer_id"`
+	Timestamp int64  `json:"timestamp"`
+	Signature string `json:"signature"`
 }
 
 type CreateInviteResponse struct {
@@ -27,20 +29,27 @@ type ListAcceptancesResponse struct {
 }
 
 type ResolveInviteReq struct {
-	Code   string `json:"code"`
-	PeerID string `json:"peer_id"`
+	Code      string `json:"code"`
+	PeerID    string `json:"peer_id"`
+	Timestamp int64  `json:"timestamp"`
+	Signature string `json:"signature"`
 }
 
 type AcknowledgeAcceptancesReq struct {
 	PeerID    string   `json:"peer_id"`
 	InviteIDs []string `json:"invite_ids"`
+	Timestamp int64    `json:"timestamp"`
+	Signature string   `json:"signature"`
 }
 
 type HeartbeatReq struct {
 	PeerID    string   `json:"peer_id"`
 	Addresses []string `json:"addresses"`
+	Timestamp int64    `json:"timestamp"`
+	Signature string   `json:"signature"`
 }
 
 type ObserverInfo struct {
 	Address string `json:"address"`
 }
+

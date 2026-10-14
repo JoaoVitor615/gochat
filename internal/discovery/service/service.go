@@ -46,7 +46,12 @@ func (s *Service) CreateInvite(ctx context.Context, peerID string) (string, erro
 		return "", err
 	}
 
-	if err := s.repository.SetInvite(ctx, code, peerID); err != nil {
+	normalizedCode, ok := normalizeInviteCode(code)
+	if !ok {
+		return "", errors.New("generated invalid invite code")
+	}
+
+	if err := s.repository.SetInvite(ctx, normalizedCode, peerID); err != nil {
 		return "", fmt.Errorf("store invite: %w", err)
 	}
 

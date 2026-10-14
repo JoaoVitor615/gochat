@@ -9,8 +9,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/JoaoVitor615/gochat/internal/auth"
+	"github.com/JoaoVitor615/gochat/internal/chat/identity"
 )
 
 const maxResponseBodySize = 64 * 1024
@@ -18,11 +22,16 @@ const maxResponseBodySize = 64 * 1024
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
+	identity   *identity.Identity
 }
 
-func NewClient(baseURL string) (*Client, error) {
+func NewClient(baseURL string, id ...*identity.Identity) (*Client, error) {
 	if baseURL == "" {
 		return nil, errors.New("baseURL cannot be empty")
+	}
+	var ident *identity.Identity
+	if len(id) > 0 {
+		ident = id[0]
 	}
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -32,7 +41,13 @@ func NewClient(baseURL string) (*Client, error) {
 				return http.ErrUseLastResponse
 			},
 		},
+		identity: ident,
 	}, nil
+}
+
+// SetIdentity configures the identity used to sign requests.
+func (c *Client) SetIdentity(id *identity.Identity) {
+	c.identity = id
 }
 
 // APIError represents an error response returned by the Discovery API.
@@ -57,22 +72,39 @@ type apiErrorResponse struct {
 }
 
 func (c *Client) CreateInvite(ctx context.Context, peerID string) (*CreateInviteResponse, error) {
+	now := time.Now().Unix()
+	var sig string
+	if c.identity != nil && len(c.identity.PrivateKey) > 0 {
+		sig = auth.Sign(c.identity.PrivateKey, auth.InvitePayload(peerID, now))
+	}
 	reqBody := &CreateInviteReq{
-		PeerID: peerID,
+		PeerID:    peerID,
+		Timestamp: now,
+		Signature: sig,
 	}
 
 	var createInviteRes CreateInviteResponse
-	if err := c.doJSON(ctx, http.MethodPost, CREATE_INVITE_ENDPOINT, reqBody, &createInviteRes); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, CREATE_INVITE_ENDPOINT, reqBody, &createInviteRes, nil); err != nil {
 		return nil, fmt.Errorf("create invite: %w", err)
 	}
 	return &createInviteRes, nil
 }
 
 func (c *Client) AddPeer(ctx context.Context, inviteCode, peerID string) (*AddPeerResponse, error) {
-	reqBody := &ResolveInviteReq{Code: inviteCode, PeerID: peerID}
+	now := time.Now().Unix()
+	var sig string
+	if c.identity != nil && len(c.identity.PrivateKey) > 0 {
+		sig = auth.Sign(c.identity.PrivateKey, auth.ResolvePayload(peerID, inviteCode, now))
+	}
+	reqBody := &ResolveInviteReq{
+		Code:      inviteCode,
+		PeerID:    peerID,
+		Timestamp: now,
+		Signature: sig,
+	}
 
 	var addPeerRes AddPeerResponse
-	if err := c.doJSON(ctx, http.MethodPost, ADD_PEER_ENDPOINT, reqBody, &addPeerRes); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, ADD_PEER_ENDPOINT, reqBody, &addPeerRes, nil); err != nil {
 		return nil, fmt.Errorf("resolve invite: %w", err)
 	}
 	return &addPeerRes, nil
@@ -80,24 +112,51 @@ func (c *Client) AddPeer(ctx context.Context, inviteCode, peerID string) (*AddPe
 
 func (c *Client) ListAcceptances(ctx context.Context, peerID string) (*ListAcceptancesResponse, error) {
 	endpoint := ACCEPTANCES_ENDPOINT + "?peer_id=" + url.QueryEscape(peerID)
+	now := time.Now().Unix()
+	headers := make(map[string]string)
+	if c.identity != nil && len(c.identity.PrivateKey) > 0 {
+		sig := auth.Sign(c.identity.PrivateKey, auth.AcceptancesPayload(peerID, now))
+		headers[auth.HeaderTimestamp] = strconv.FormatInt(now, 10)
+		headers[auth.HeaderSignature] = sig
+	}
 	var response ListAcceptancesResponse
-	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response); err != nil {
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, headers); err != nil {
 		return nil, fmt.Errorf("list invite acceptances: %w", err)
 	}
 	return &response, nil
 }
 
 func (c *Client) AcknowledgeAcceptances(ctx context.Context, peerID string, inviteIDs []string) error {
-	reqBody := &AcknowledgeAcceptancesReq{PeerID: peerID, InviteIDs: inviteIDs}
-	if err := c.doJSON(ctx, http.MethodPost, ACK_ACCEPTANCES_ENDPOINT, reqBody, nil); err != nil {
+	now := time.Now().Unix()
+	var sig string
+	if c.identity != nil && len(c.identity.PrivateKey) > 0 {
+		sig = auth.Sign(c.identity.PrivateKey, auth.AcknowledgeAcceptancesPayload(peerID, now, inviteIDs))
+	}
+	reqBody := &AcknowledgeAcceptancesReq{
+		PeerID:    peerID,
+		InviteIDs: inviteIDs,
+		Timestamp: now,
+		Signature: sig,
+	}
+	if err := c.doJSON(ctx, http.MethodPost, ACK_ACCEPTANCES_ENDPOINT, reqBody, nil, nil); err != nil {
 		return fmt.Errorf("acknowledge invite acceptances: %w", err)
 	}
 	return nil
 }
 
 func (c *Client) Heartbeat(ctx context.Context, peerID string, addresses []string) error {
-	reqBody := &HeartbeatReq{PeerID: peerID, Addresses: addresses}
-	if err := c.doJSON(ctx, http.MethodPost, HEARTBEAT_ENDPOINT, reqBody, nil); err != nil {
+	now := time.Now().Unix()
+	var sig string
+	if c.identity != nil && len(c.identity.PrivateKey) > 0 {
+		sig = auth.Sign(c.identity.PrivateKey, auth.HeartbeatPayload(peerID, now, addresses))
+	}
+	reqBody := &HeartbeatReq{
+		PeerID:    peerID,
+		Addresses: addresses,
+		Timestamp: now,
+		Signature: sig,
+	}
+	if err := c.doJSON(ctx, http.MethodPost, HEARTBEAT_ENDPOINT, reqBody, nil, nil); err != nil {
 		return fmt.Errorf("heartbeat: %w", err)
 	}
 	return nil
@@ -105,13 +164,13 @@ func (c *Client) Heartbeat(ctx context.Context, peerID string, addresses []strin
 
 func (c *Client) GetObserver(ctx context.Context) (*ObserverInfo, error) {
 	var observerInfo ObserverInfo
-	if err := c.doJSON(ctx, http.MethodGet, OBSERVER_ENDPOINT, nil, &observerInfo); err != nil {
+	if err := c.doJSON(ctx, http.MethodGet, OBSERVER_ENDPOINT, nil, &observerInfo, nil); err != nil {
 		return nil, fmt.Errorf("get public address observer: %w", err)
 	}
 	return &observerInfo, nil
 }
 
-func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any) error {
+func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any, headers map[string]string) error {
 	if c == nil || c.httpClient == nil {
 		return errors.New("discovery client is not initialized")
 	}
@@ -136,6 +195,9 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 	}
 	if requestBody != nil {
 		request.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range headers {
+		request.Header.Set(k, v)
 	}
 
 	response, err := c.httpClient.Do(request)

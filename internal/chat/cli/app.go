@@ -26,7 +26,7 @@ func InitApp() (*App, error) {
 	}
 
 	discoveryURL := os.Getenv("DISCOVERY_URL")
-	client, err := client.NewClient(discoveryURL)
+	client, err := client.NewClient(discoveryURL, id)
 	if err != nil {
 		return nil, fmt.Errorf("initialize discovery client: %w", err)
 	}

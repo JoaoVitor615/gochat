@@ -148,18 +148,19 @@ Mensagens: Peer A ───────── conexão P2P direta ────�
 | `internal/discovery/service` | Casos de uso de heartbeat, criação e resolução de convites. |
 | `internal/discovery/repository` | Interface e implementação Redis. |
 | `internal/discovery/observation` | Host libp2p observer e protocolo restrito de observação UDP/QUIC. |
+| `internal/auth` | Construção de payloads canônicos, assinatura e verificação criptográfica Ed25519 contra PeerID. |
 
 ## 5. Contrato HTTP do Discovery
 
-Todas as rotas são montadas sem prefixo. Erros JSON têm `{ "status": <HTTP>, "message": "..." }`. Os handlers limitam corpos a 64 KiB, rejeitam campos JSON desconhecidos e rejeitam valores JSON adicionais após o objeto esperado.
+Todas as rotas são montadas sem prefixo. Erros JSON têm `{ "status": <HTTP>, "message": "..." }`. Os handlers limitam corpos a 64 KiB, rejeitam campos JSON desconhecidos e rejeitam valores JSON adicionais após o objeto esperado. Todas as operações com `peer_id` exigem prova de posse da chave privada Ed25519 correspondente (assinatura digital e timestamp dentro da janela de tolerância de 2 minutos). Falha de autenticação resulta em HTTP `401 Unauthorized`.
 
 | Rota | Método | Entrada / saída | Regras principais |
 |---|---|---|---|
-| `/heartbeat` | POST | Entrada `{ "peer_id": string, "addresses": [string] }`; sucesso `204 No Content`. | PeerID válido; de 1 a 16 multiaddrs sintaticamente válidos. Substitui a presença/endereço no Redis por 5 min. |
-| `/invite` | POST | Entrada `{ "peer_id": string }`; sucesso `{ "code": "XXX-XXX-XXX" }`. | PeerID válido; código aleatório guardado por 10 min. |
-| `/resolve` | POST | Entrada `{ "code": string, "peer_id": string }`; sucesso `{ "peer_id": string, "addresses": [...] }`. | Aceita código com ou sem hífens; consome o convite e cria o evento de aceitação atomicamente. Convite inválido/expirado ou algum peer offline retorna 404. |
-| `/acceptances?peer_id=<PeerID>` | GET | Sucesso `{ "acceptances": [{ "invite_id": string, "peer_id": string, "addresses": [...], "accepted_at": time }] }`. | Retorna eventos ainda não confirmados; metadados expiram em até 10 min. O TUI consulta a cada 2 s até 10 min após emitir convite. |
-| `/acceptances/ack` | POST | Entrada `{ "peer_id": string, "invite_ids": [string] }`; sucesso `204 No Content`. | Remove os eventos já persistidos localmente pelo criador; limite de 100 IDs por chamada. |
+| `/heartbeat` | POST | Entrada `{ "peer_id": string, "addresses": [string], "timestamp": int64, "signature": string }`; sucesso `204 No Content`. | Assinatura válida de `HeartbeatPayload`; PeerID válido; de 1 a 16 multiaddrs sintaticamente válidos. Substitui a presença/endereço no Redis por 5 min. |
+| `/invite` | POST | Entrada `{ "peer_id": string, "timestamp": int64, "signature": string }`; sucesso `{ "code": "XXX-XXX-XXX" }`. | Assinatura válida de `InvitePayload`; PeerID válido; código de 9 caracteres guardado por 10 min. |
+| `/resolve` | POST | Entrada `{ "code": string, "peer_id": string, "timestamp": int64, "signature": string }`; sucesso `{ "peer_id": string, "addresses": [...] }`. | Assinatura válida de `ResolvePayload` pelo aceitante; aceita código com ou sem hífens; consome o convite e cria o evento de aceitação atomicamente. Convite inválido/expirado ou algum peer offline retorna 404. |
+| `/acceptances?peer_id=<PeerID>` | GET | Headers `X-GoChat-Timestamp` e `X-GoChat-Signature`. Sucesso `{ "acceptances": [{ "invite_id": string, "peer_id": string, "addresses": [...], "accepted_at": time }] }`. | Assinatura válida de `AcceptancesPayload`. Retorna eventos ainda não confirmados; metadados expiram em até 10 min. O TUI consulta a cada 2 s até 10 min após emitir convite. |
+| `/acceptances/ack` | POST | Entrada `{ "peer_id": string, "invite_ids": [string], "timestamp": int64, "signature": string }`; sucesso `204 No Content`. | Assinatura válida de `AcknowledgeAcceptancesPayload`; remove os eventos já persistidos localmente pelo criador; limite de 100 IDs por chamada. |
 | `/observer` | GET | Sucesso `{ "address": "/ip4/.../udp/4001/quic-v1/p2p/<PeerID>" }`. | `503` se observer não estiver habilitado; não transporta mensagens. |
 | Qualquer rota desconhecida | Qualquer | Erro JSON `404`. | — |
 
@@ -310,6 +311,8 @@ Faz preflight de Git, Docker, Docker Compose, Buildx (mínimo 0.17.0), builder `
 
 - Identidade local Ed25519 persistente e com permissões restritas no filesystem.
 - Conexões libp2p/QUIC autenticam peers e criptografam o transporte.
+- Autenticação e prova de posse criptográfica no Discovery (`internal/auth`) via assinaturas digitais Ed25519 em todas as operações (`/heartbeat`, `/invite`, `/resolve`, `/acceptances`, `/acceptances/ack`), prevenindo spoofing de PeerID e hijacking de rotas.
+- Proteção contra replay attacks nas requisições do Discovery através de timestamps validados na assinatura (tolerância de skew de 1 min e expiração de 2 min).
 - Validação do PeerID remoto contra o remetente declarado no envelope e do destinatário contra a identidade local.
 - Limites de tamanho, versão de protocolo, deduplicação e persistência antes de ACK.
 - Discovery/observer não recebem conteúdo de mensagens.
@@ -317,8 +320,8 @@ Faz preflight de Git, Docker, Docker Compose, Buildx (mínimo 0.17.0), builder `
 ### Lacunas conhecidas
 
 - Não há criptografia de ponta a ponta de nível de aplicação, rotação de chaves, gestão de dispositivos, UI de confiança/identidade nem proteção criptográfica do histórico em repouso.
-- API Discovery não tem autenticação de conta. Endpoints de invite/heartbeat aceitam PeerIDs declarados pelo cliente; validar formato não prova posse da chave privada.
-- Convite é um segredo bearer de curta duração e seu uso não depende de uma conta autenticada.
+- A API Discovery não gerencia contas/perfis nem autoriza permissões além da prova criptográfica de posse da chave privada do PeerID. O serviço confia nos endereços (multiaddrs) declarados pelo detentor comprovado da chave.
+- Convite é um segredo bearer de uso único/curta duração; qualquer peer que conheça o código e comprove posse de seu próprio PeerID pode resolver o convite.
 - `GET /observer` e API usam HTTP no deploy atual, sem TLS configurado no próprio serviço. O endereço e PeerID do observer são dados públicos de conectividade.
 - Endereços IP/multiaddrs são publicados no Discovery e podem expor metadados de rede.
 - O observer é um ponto público de metadados; não é relay, mas depende de UDP 4001, endereço público estável e volume de identidade persistente.
@@ -355,6 +358,7 @@ Os critérios abaixo descrevem como validar o comportamento pretendido. A passag
 ## 14. Fontes de verdade no repositório
 
 - `cmd/gochat/main.go`, `internal/chat/cli/`
+- `internal/auth/`
 - `internal/chat/identity/`, `internal/chat/paths.go`
 - `internal/chat/client/`, `internal/chat/message/`
 - `internal/chat/p2p/`, `internal/chat/messaging/`
