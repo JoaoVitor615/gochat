@@ -102,7 +102,7 @@ O Discovery não é um servidor de chat: não recebe, persiste nem retransmite c
 - A interface mostra o apelido do contato (e seu PeerID resumido) no cabeçalho da conversa, na lista lateral e como autor das mensagens recebidas.
 - A interface mostra autor, horário local e, para mensagens enviadas, `na fila`, `enviado · aguardando confirmação` ou `entregue`.
 - Mensagens recebidas são exibidas como recebidas. Não existe estado de leitura.
-- O histórico é atualizado a cada 2 segundos quando o usuário está no fim da conversa. Ao rolar para trás, a atualização de topo não substitui a página que está sendo lida.
+- Mensagens novas e atualizações de entrega (ACK) são refletidas em tempo real na TUI através de um barramento de eventos pub/sub reativo (`internal/chat/events`), eliminando a latência de polling. O histórico também conta com recarga periódica a cada 2 segundos quando o usuário está no fim da conversa como salvaguarda. Ao rolar para trás, a atualização de topo não substitui a página que está sendo lida.
 
 ## 4. Arquitetura lógica
 
@@ -143,6 +143,7 @@ Mensagens: Peer A ───────── conexão P2P direta ────�
 | `internal/chat/message` | Envelope, frame, ACK, versão e estados locais. |
 | `internal/chat/messaging` | Outbox, envio, retries e atualização de status. |
 | `internal/chat/storage` | Interface de repositório e implementação bbolt. |
+| `internal/chat/events` | Barramento de eventos (pub/sub) em memória para notificação reativa de mensagens e estados na TUI. |
 | `internal/chat/tui` | Interface terminal e coordenação de contatos, histórico e envio. |
 | `internal/discovery/handler` | Rotas HTTP, validação de entradas e respostas. |
 | `internal/discovery/service` | Casos de uso de heartbeat, criação e resolução de convites. |
@@ -362,7 +363,7 @@ Os critérios abaixo descrevem como validar o comportamento pretendido. A passag
 - `internal/chat/identity/`, `internal/chat/paths.go`
 - `internal/chat/client/`, `internal/chat/message/`
 - `internal/chat/p2p/`, `internal/chat/messaging/`
-- `internal/chat/storage/`, `internal/chat/tui/`
+- `internal/chat/storage/`, `internal/chat/tui/`, `internal/chat/events/`
 - `internal/discovery/`, `cmd/discovery/`
 - `.env.chat.example`, `.env.discovery.example`, `docker-compose.yml`
 - `.github/workflows/deploy-discovery.yml`

@@ -26,7 +26,7 @@ func SetStreamHandler(h host.Host, handler network.StreamHandler) {
 	h.SetStreamHandler(ProtocolID, handler)
 }
 
-func HandleStream(ctx context.Context, stream network.Stream, store storage.Repository, localPeerID string) error {
+func HandleStream(ctx context.Context, stream network.Stream, store storage.Repository, localPeerID string, notifier func(storage.StoredMessage)) error {
 	if ctx == nil || stream == nil || store == nil || localPeerID == "" {
 		return errors.New("handle P2P stream: context, stream, store, and local peer ID are required")
 	}
@@ -53,13 +53,17 @@ func HandleStream(ctx context.Context, stream network.Stream, store storage.Repo
 		return err
 	}
 	msg.CreatedAt = msg.CreatedAt.UTC()
-	_, err = store.SaveMessageOnce(ctx, storage.StoredMessage{
+	storedMsg := storage.StoredMessage{
 		ConversationPeerID: remotePeerID,
 		Envelope:           msg,
 		Status:             message.DeliveryDelivered,
-	})
+	}
+	created, err := store.SaveMessageOnce(ctx, storedMsg)
 	if err != nil {
 		return fmt.Errorf("persist received message: %w", err)
+	}
+	if created && notifier != nil {
+		notifier(storedMsg)
 	}
 	if err := connection.SendAck(msg.ID); err != nil {
 		return fmt.Errorf("acknowledge persisted message: %w", err)

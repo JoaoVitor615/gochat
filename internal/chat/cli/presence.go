@@ -33,7 +33,7 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 	}
 	a.Host = h
 	p2p.SetStreamHandler(h, func(stream network.Stream) {
-		if err := p2p.HandleStream(ctx, stream, a.Store, a.Identity.PeerID); err != nil && ctx.Err() == nil {
+		if err := p2p.HandleStream(ctx, stream, a.Store, a.Identity.PeerID, a.Bus.Publish); err != nil && ctx.Err() == nil {
 			log.Printf("handle peer message: %v", err)
 		}
 	})
@@ -59,7 +59,7 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 		return nil, err
 	}
 
-	messenger := messaging.New(h, a.Identity.PeerID, a.Store)
+	messenger := messaging.New(h, a.Identity.PeerID, a.Store, a.Bus.Publish)
 	a.Messenger = messenger
 	savedPeers, err := a.Store.ListPeers(ctx)
 	if err != nil {

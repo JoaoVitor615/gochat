@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/JoaoVitor615/gochat/internal/chat/client"
+	"github.com/JoaoVitor615/gochat/internal/chat/events"
 	"github.com/JoaoVitor615/gochat/internal/chat/message"
 	"github.com/JoaoVitor615/gochat/internal/chat/messaging"
 	"github.com/JoaoVitor615/gochat/internal/chat/storage"
@@ -81,6 +82,7 @@ type model struct {
 	input                  string
 	chatNotice             string
 	scrollBack             int
+	busCh                  chan storage.StoredMessage
 }
 
 type inviteResult struct {
@@ -144,12 +146,25 @@ var (
 )
 
 // Run opens the chat TUI and keeps peer operations tied to the app context.
-func Run(ctx context.Context, localPeerID string, api PeerAPI, peerStore PeerStore, sender MessageSender) error {
+func Run(ctx context.Context, localPeerID string, api PeerAPI, peerStore PeerStore, sender MessageSender, bus *events.Bus) error {
 	savedPeers, err := peerStore.ListPeers(ctx)
 	if err != nil {
 		return fmt.Errorf("load saved peers: %w", err)
 	}
-	initial := model{ctx: ctx, api: api, peerStore: peerStore, sender: sender, localID: localPeerID, active: -1}
+	var busCh chan storage.StoredMessage
+	if bus != nil {
+		busCh = bus.Subscribe()
+		defer bus.Unsubscribe(busCh)
+	}
+	initial := model{
+		ctx:       ctx,
+		api:       api,
+		peerStore: peerStore,
+		sender:    sender,
+		localID:   localPeerID,
+		active:    -1,
+		busCh:     busCh,
+	}
 	for _, saved := range savedPeers {
 		initial.peers = append(initial.peers, peer{
 			id: saved.PeerID, displayName: saved.DisplayName,
@@ -160,7 +175,28 @@ func Run(ctx context.Context, localPeerID string, api PeerAPI, peerStore PeerSto
 	return err
 }
 
-func (m model) Init() tea.Cmd { return refreshTickCmd() }
+type messageEventMsg storage.StoredMessage
+
+func waitForEventCmd(ch chan storage.StoredMessage) tea.Cmd {
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		msg, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return messageEventMsg(msg)
+	}
+}
+
+func (m model) Init() tea.Cmd {
+	cmds := []tea.Cmd{refreshTickCmd()}
+	if m.busCh != nil {
+		cmds = append(cmds, waitForEventCmd(m.busCh))
+	}
+	return tea.Batch(cmds...)
+}
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -177,6 +213,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			commands = append(commands, m.loadHistoryCmd(peerID, nil, false))
 		}
 		return m, tea.Batch(commands...)
+	case messageEventMsg:
+		stored := storage.StoredMessage(msg)
+		if stored.ConversationPeerID == m.activePeerID() {
+			m.messages = appendMessage(m.messages, stored)
+			if m.scrollBack == 0 {
+				m.scrollBack = 0
+			}
+			if stored.Envelope.SenderPeerID == m.localID && stored.Status == message.DeliveryDelivered {
+				m.chatNotice = "Entrega confirmada pelo peer."
+			}
+		}
+		if idx := m.peerIndex(stored.ConversationPeerID); idx >= 0 {
+			if stored.Envelope.CreatedAt.After(m.peers[idx].lastSeenAt) {
+				m.peers[idx].lastSeenAt = stored.Envelope.CreatedAt
+			}
+		}
+		return m, waitForEventCmd(m.busCh)
 	case historyResult:
 		if msg.peerID != m.activePeerID() {
 			return m, nil
@@ -575,8 +628,9 @@ func (m model) activePeerID() string {
 }
 
 func appendMessage(existing []storage.StoredMessage, added storage.StoredMessage) []storage.StoredMessage {
-	for _, current := range existing {
+	for i, current := range existing {
 		if current.Envelope.ID == added.Envelope.ID {
+			existing[i] = added
 			return existing
 		}
 	}

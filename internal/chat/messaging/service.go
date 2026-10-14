@@ -38,14 +38,16 @@ type Service struct {
 	host        host.Host
 	localPeerID string
 	store       storage.Repository
+	notifier    func(storage.StoredMessage)
 
 	locksMu   sync.Mutex
 	peerLocks map[string]*sync.Mutex
 }
 
-func New(h host.Host, localPeerID string, store storage.Repository) *Service {
+func New(h host.Host, localPeerID string, store storage.Repository, notifier func(storage.StoredMessage)) *Service {
 	return &Service{
 		host: h, localPeerID: localPeerID, store: store,
+		notifier:  notifier,
 		peerLocks: make(map[string]*sync.Mutex),
 	}
 }
@@ -158,6 +160,13 @@ func (s *Service) Send(ctx context.Context, recipientPeerID, content string) (Se
 		unlock()
 		return SendResult{}, fmt.Errorf("queue message locally: %w", err)
 	}
+	if s.notifier != nil {
+		s.notifier(storage.StoredMessage{
+			ConversationPeerID: peerIDStr,
+			Envelope:           envelope,
+			Status:             message.DeliveryPending,
+		})
+	}
 	unlock()
 
 	result := SendResult{Message: envelope, Status: message.DeliveryPending}
@@ -241,11 +250,25 @@ func (s *Service) deliver(ctx context.Context, peerID peer.ID, envelope message.
 			if err := s.store.UpdateMessageStatus(context.WithoutCancel(ctx), envelope.ID, message.DeliverySent); err != nil {
 				return errors.Join(sendErr, fmt.Errorf("save sent status: %w", err))
 			}
+			if s.notifier != nil {
+				s.notifier(storage.StoredMessage{
+					ConversationPeerID: peerID.String(),
+					Envelope:           envelope,
+					Status:             message.DeliverySent,
+				})
+			}
 		}
 		return sendErr
 	}
 	if err := s.store.UpdateMessageStatus(context.WithoutCancel(ctx), envelope.ID, message.DeliveryDelivered); err != nil {
 		return fmt.Errorf("save delivered status after ACK: %w", err)
+	}
+	if s.notifier != nil {
+		s.notifier(storage.StoredMessage{
+			ConversationPeerID: peerID.String(),
+			Envelope:           envelope,
+			Status:             message.DeliveryDelivered,
+		})
 	}
 	return nil
 }

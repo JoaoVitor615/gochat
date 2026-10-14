@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/JoaoVitor615/gochat/internal/chat/client"
+	"github.com/JoaoVitor615/gochat/internal/chat/events"
 	"github.com/JoaoVitor615/gochat/internal/chat/identity"
 	"github.com/JoaoVitor615/gochat/internal/chat/messaging"
 	"github.com/JoaoVitor615/gochat/internal/chat/storage"
@@ -17,6 +18,7 @@ type App struct {
 	Messenger       *messaging.Service
 	Store           storage.Repository
 	Host            host.Host
+	Bus             *events.Bus
 }
 
 func InitApp() (*App, error) {
@@ -36,10 +38,13 @@ func InitApp() (*App, error) {
 		return nil, fmt.Errorf("initialize local storage: %w", err)
 	}
 
+	bus := events.NewBus()
+
 	return &App{
 		Identity:        id,
 		DiscoveryClient: client,
 		Store:           store,
+		Bus:             bus,
 	}, nil
 }
 
