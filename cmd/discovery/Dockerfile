@@ -7,6 +7,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 COPY cmd/discovery ./cmd/discovery
 COPY internal/discovery ./internal/discovery
+COPY internal/auth ./internal/auth
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
