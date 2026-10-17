@@ -20,6 +20,7 @@ AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
+ArchitecturesInstallIn64BitMode=x64
 DisableProgramGroupPage=yes
 OutputDir=..\..\dist-installer
 OutputBaseFilename=gochat-setup-windows-amd64
@@ -45,11 +46,11 @@ Name: "envPath"; Description: "{cm:EnvPathDescription}"; GroupDescription: "{cm:
 [Files]
 Source: "..\..\dist\gochat.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\.env.chat.example"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\.env.chat.example"; DestDir: "{app}"; DestName: ".env.chat"; Flags: onlyifdestfiledoesntexist
+Source: "..\..\.env.chat.example"; DestDir: "{app}"; DestName: ".env.chat"; Flags: onlyifdoesntexist
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; WorkingDir: "{app}"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
@@ -73,6 +74,42 @@ begin
         Path := Path + AppDir;
         RegWriteStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', Path);
       end;
+    end
+    else
+    begin
+      RegWriteStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', AppDir);
+    end;
+  end;
+end;
+
+// Remove GoChat directory from user PATH on uninstall
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Path: string;
+  AppDir: string;
+  P: Integer;
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    AppDir := ExpandConstant('{app}');
+    if RegQueryStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', Path) then
+    begin
+      P := Pos(AppDir + ';', Path);
+      if P > 0 then
+        Delete(Path, P, Length(AppDir) + 1)
+      else
+      begin
+        P := Pos(';' + AppDir, Path);
+        if P > 0 then
+          Delete(Path, P, Length(AppDir) + 1)
+        else
+        begin
+          P := Pos(AppDir, Path);
+          if P > 0 then
+            Delete(Path, P, Length(AppDir));
+        end;
+      end;
+      RegWriteStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', Path);
     end;
   end;
 end;
