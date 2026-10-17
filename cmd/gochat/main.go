@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/JoaoVitor615/gochat/internal/chat/cli"
 	"github.com/joho/godotenv"
@@ -18,8 +19,12 @@ func main() {
 }
 
 func run() (err error) {
-	if err := godotenv.Load(".env.chat"); err != nil {
-		return fmt.Errorf("load .env.chat: %w", err)
+	// Load .env.chat if present in current working directory.
+	_ = godotenv.Load(".env.chat")
+
+	// Also attempt to load .env.chat from the installed executable directory.
+	if exePath, exeErr := os.Executable(); exeErr == nil {
+		_ = godotenv.Load(filepath.Join(filepath.Dir(exePath), ".env.chat"))
 	}
 
 	app, err := cli.InitApp()

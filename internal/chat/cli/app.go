@@ -21,6 +21,10 @@ type App struct {
 	Bus             *events.Bus
 }
 
+// DefaultDiscoveryURL is the default Discovery server endpoint.
+// Can be overridden at build time via -ldflags or at runtime via DISCOVERY_URL environment variable.
+var DefaultDiscoveryURL = "http://54.83.194.203:8080"
+
 func InitApp() (*App, error) {
 	id, err := identity.NewIdentity()
 	if err != nil {
@@ -28,6 +32,9 @@ func InitApp() (*App, error) {
 	}
 
 	discoveryURL := os.Getenv("DISCOVERY_URL")
+	if discoveryURL == "" {
+		discoveryURL = DefaultDiscoveryURL
+	}
 	client, err := client.NewClient(discoveryURL, id)
 	if err != nil {
 		return nil, fmt.Errorf("initialize discovery client: %w", err)
