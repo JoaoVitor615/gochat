@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - master
+    paths:
+      - 'cmd/discovery/**'
+      - 'internal/discovery/**'
+      - 'internal/auth/**'
+      - 'docker-compose.yml'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/deploy-discovery.yml'
 
 permissions:
   contents: read
