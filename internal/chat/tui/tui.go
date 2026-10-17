@@ -246,6 +246,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.older {
 			m.messages = prependMessages(msg.messages, m.messages)
 			m.scrollBack += len(msg.messages) * 3
+			maxScroll := m.maxScrollBack()
+			if m.scrollBack > maxScroll && !m.hasOlder {
+				m.scrollBack = maxScroll
+			}
 		} else {
 			m.messages = msg.messages
 			m.scrollBack = 0
@@ -355,8 +359,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.active >= 0 {
 				step := 3
+				maxScroll := m.maxScrollBack()
 				m.scrollBack += step
-				if m.scrollBack >= len(m.messages)*3 && m.hasOlder && !m.loadingChat && len(m.messages) > 0 {
+				if m.scrollBack > maxScroll && !m.hasOlder {
+					m.scrollBack = maxScroll
+				}
+				if m.hasOlder && !m.loadingChat && len(m.messages) > 0 && m.scrollBack >= maxScroll {
 					m.loadingChat = true
 					before := m.messages[0].Envelope
 					return m, m.loadHistoryCmd(m.activePeerID(), &before, true)
@@ -556,8 +564,12 @@ func (m model) updateChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input = ""
 	case "pgup":
 		step := max(1, m.height/3)
+		maxScroll := m.maxScrollBack()
 		m.scrollBack += step
-		if m.scrollBack >= len(m.messages)*3 && m.hasOlder && !m.loadingChat && len(m.messages) > 0 {
+		if m.scrollBack > maxScroll && !m.hasOlder {
+			m.scrollBack = maxScroll
+		}
+		if m.hasOlder && !m.loadingChat && len(m.messages) > 0 && m.scrollBack >= maxScroll {
 			m.loadingChat = true
 			before := m.messages[0].Envelope
 			return m, m.loadHistoryCmd(m.activePeerID(), &before, true)
@@ -914,6 +926,43 @@ func (m model) sidebar(width, height int) []string {
 	return rows
 }
 
+func (m model) messageRowCount(width int) int {
+	if len(m.messages) == 0 || m.active < 0 || m.active >= len(m.peers) {
+		return 0
+	}
+	wrapWidth := max(1, width-6)
+	p := m.peers[m.active]
+	count := 0
+	for _, stored := range m.messages {
+		who, status := "Peer", "recebida"
+		if stored.Envelope.SenderPeerID == m.localID {
+			who, status = "Você", deliveryLabel(stored.Status)
+		} else if p.displayName != "" {
+			who = p.displayName
+		}
+		heading := fmt.Sprintf("%s · %s · %s", who, stored.Envelope.CreatedAt.Local().Format("15:04"), status)
+		count += len(wrapChatText(heading, wrapWidth))
+		count += len(wrapChatText(stored.Envelope.Content, wrapWidth))
+		count++
+	}
+	return count
+}
+
+func (m model) maxScrollBack() int {
+	if m.width <= 0 || m.height <= 0 || len(m.messages) == 0 || m.active < 0 || m.active >= len(m.peers) {
+		return 0
+	}
+	innerWidth := m.width - 2
+	sideWidth := min(29, max(22, innerWidth/3))
+	mainWidth := innerWidth - sideWidth - 1
+	bodyHeight := m.height - 6
+	messageBottom := bodyHeight - 4
+	visibleRows := max(0, messageBottom-3)
+
+	totalRows := m.messageRowCount(mainWidth)
+	return max(0, totalRows-visibleRows)
+}
+
 func (m model) mainArea(width, height int) []string {
 	if m.panel == logsPanel {
 		return m.logsView(width, height)
@@ -963,7 +1012,9 @@ func (m model) mainArea(width, height int) []string {
 		}
 	}
 	visibleRows := max(0, messageBottom-3)
-	end := max(0, len(messageRows)-m.scrollBack)
+	maxScroll := max(0, len(messageRows)-visibleRows)
+	scroll := min(m.scrollBack, maxScroll)
+	end := max(0, len(messageRows)-scroll)
 	start := max(0, end-visibleRows)
 	for i, line := range messageRows[start:end] {
 		row := 3 + i
