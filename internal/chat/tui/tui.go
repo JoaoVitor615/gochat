@@ -174,7 +174,7 @@ func Run(ctx context.Context, localPeerID string, api PeerAPI, peerStore PeerSto
 			addresses: saved.Addresses, lastSeenAt: saved.LastSeenAt,
 		})
 	}
-	_, err = tea.NewProgram(initial, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+	_, err = tea.NewProgram(initial, tea.WithAltScreen(), tea.WithContext(ctx), tea.WithMouseCellMotion()).Run()
 	return err
 }
 
@@ -346,6 +346,45 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.chatNotice = "Convite aceito; conexão P2P direta estabelecida."
 		}
 		return m, m.loadHistoryCmd(m.activePeerID(), nil, false)
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			if m.panel == logsPanel {
+				m.logsScroll += 3
+				return m, nil
+			}
+			if m.active >= 0 {
+				step := 3
+				m.scrollBack += step
+				if m.scrollBack >= len(m.messages)*3 && m.hasOlder && !m.loadingChat && len(m.messages) > 0 {
+					m.loadingChat = true
+					before := m.messages[0].Envelope
+					return m, m.loadHistoryCmd(m.activePeerID(), &before, true)
+				}
+				return m, nil
+			}
+			if m.selected > 0 {
+				m.selected--
+				return m, nil
+			}
+		case tea.MouseButtonWheelDown:
+			if m.panel == logsPanel {
+				if m.logsScroll > 3 {
+					m.logsScroll -= 3
+				} else {
+					m.logsScroll = 0
+				}
+				return m, nil
+			}
+			if m.active >= 0 {
+				m.scrollBack = max(0, m.scrollBack-3)
+				return m, nil
+			}
+			if m.selected < len(m.peers)-1 {
+				m.selected++
+				return m, nil
+			}
+		}
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
@@ -836,7 +875,7 @@ func (m model) View() string {
 	rows = append(rows, borderStyle.Render("├"+strings.Repeat("─", sideWidth)+"┴"+strings.Repeat("─", mainWidth)+"┤"))
 	footer := " ↑↓/j k navegar  ·  enter abrir  ·  a adicionar  ·  i convidar  ·  n apelido  ·  q sair"
 	if m.active >= 0 {
-		footer = " enter enviar  ·  pgup histórico  ·  ctrl+n apelido  ·  esc voltar  ·  ctrl+u limpar"
+		footer = " enter enviar  ·  scroll histórico  ·  ctrl+n apelido  ·  esc voltar  ·  ctrl+u limpar"
 	}
 	if m.panel == nicknamePanel {
 		footer = " enter salvar  ·  esc cancelar  ·  deixe vazio para remover apelido"
