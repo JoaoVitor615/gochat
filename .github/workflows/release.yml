@@ -1,0 +1,123 @@
+name: Release GoChat
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-binaries:
+    name: Build Multiplatform Binaries
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Windows portable archives
+          - goos: windows
+            goarch: amd64
+            ext: .exe
+            archive: zip
+          - goos: windows
+            goarch: arm64
+            ext: .exe
+            archive: zip
+
+          # Linux
+          - goos: linux
+            goarch: amd64
+            ext: ""
+            archive: tar.gz
+          - goos: linux
+            goarch: arm64
+            ext: ""
+            archive: tar.gz
+
+          # macOS (Darwin)
+          - goos: darwin
+            goarch: amd64
+            ext: ""
+            archive: tar.gz
+          - goos: darwin
+            goarch: arm64
+            ext: ""
+            archive: tar.gz
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Build GoChat Client
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p dist
+          OUTPUT_NAME="gochat${{ matrix.ext }}"
+          go build -ldflags="-s -w" -o "dist/$OUTPUT_NAME" ./cmd/gochat
+
+      - name: Package artifacts
+        run: |
+          mkdir -p release-pkg
+          cp "dist/gochat${{ matrix.ext }}" "release-pkg/gochat${{ matrix.ext }}"
+          cp .env.chat.example release-pkg/.env.chat.example
+
+          TAG_NAME="${{ github.ref_name }}"
+          ARCHIVE_NAME="gochat-${TAG_NAME}-${{ matrix.goos }}-${{ matrix.goarch }}"
+
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            cd release-pkg && zip -r "../$ARCHIVE_NAME.zip" . && cd ..
+          else
+            cd release-pkg && tar -czvf "../$ARCHIVE_NAME.tar.gz" . && cd ..
+          fi
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: gochat-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}.*
+          generate_release_notes: true
+
+  build-windows-installer:
+    name: Build Windows Graphic Installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Build GoChat Windows Executable
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: 0
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          go build -ldflags="-s -w" -o dist/gochat.exe ./cmd/gochat
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup --no-progress
+
+      - name: Compile Inno Setup Installer
+        run: |
+          $appVersion = "${{ github.ref_name }}"
+          iscc /DMyAppVersion="$appVersion" packaging/windows/gochat.iss
+
+      - name: Upload Installer to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-installer/gochat-setup-windows-amd64.exe
