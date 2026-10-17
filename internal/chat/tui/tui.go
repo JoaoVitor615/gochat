@@ -9,6 +9,7 @@ import (
 
 	"github.com/JoaoVitor615/gochat/internal/chat/client"
 	"github.com/JoaoVitor615/gochat/internal/chat/events"
+	"github.com/JoaoVitor615/gochat/internal/chat/logger"
 	"github.com/JoaoVitor615/gochat/internal/chat/message"
 	"github.com/JoaoVitor615/gochat/internal/chat/messaging"
 	"github.com/JoaoVitor615/gochat/internal/chat/storage"
@@ -53,6 +54,7 @@ const (
 	addPanel
 	invitePanel
 	nicknamePanel
+	logsPanel
 )
 
 type model struct {
@@ -82,6 +84,7 @@ type model struct {
 	input                  string
 	chatNotice             string
 	scrollBack             int
+	logsScroll             int
 	busCh                  chan storage.StoredMessage
 }
 
@@ -347,6 +350,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
+		if msg.String() == "ctrl+l" {
+			if m.panel == logsPanel {
+				m.panel = noPanel
+			} else {
+				m.panel = logsPanel
+				m.logsScroll = 0
+			}
+			return m, nil
+		}
+		if m.panel == logsPanel {
+			return m.updateLogsPanel(msg)
+		}
 		if m.panel == addPanel {
 			return m.updateAddPanel(msg)
 		}
@@ -403,6 +418,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.errText = ""
 			}
 		}
+	}
+	return m, nil
+}
+
+func (m model) updateLogsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.panel = noPanel
+	case "up", "k":
+		m.logsScroll++
+	case "down", "j":
+		if m.logsScroll > 0 {
+			m.logsScroll--
+		}
+	case "pgup":
+		m.logsScroll += 10
+	case "pgdown":
+		if m.logsScroll > 10 {
+			m.logsScroll -= 10
+		} else {
+			m.logsScroll = 0
+		}
+	case "home":
+		m.logsScroll = 999999
+	case "end":
+		m.logsScroll = 0
 	}
 	return m, nil
 }
@@ -799,6 +840,8 @@ func (m model) View() string {
 	}
 	if m.panel == nicknamePanel {
 		footer = " enter salvar  ·  esc cancelar  ·  deixe vazio para remover apelido"
+	} else if m.panel == logsPanel {
+		footer = " ↑↓ rolar  ·  pgup/pgdn rolar rápido  ·  esc / ctrl+l fechar"
 	} else if m.panel != noPanel {
 		footer = " esc fechar  ·  convites expiram após 10 minutos"
 	}
@@ -833,6 +876,9 @@ func (m model) sidebar(width, height int) []string {
 }
 
 func (m model) mainArea(width, height int) []string {
+	if m.panel == logsPanel {
+		return m.logsView(width, height)
+	}
 	if m.panel != noPanel {
 		return m.dialog(width, height)
 	}
@@ -1039,3 +1085,59 @@ func wrapChatText(value string, width int) []string {
 	}
 	return lines
 }
+
+func (m model) logsView(width, height int) []string {
+	rows := make([]string, height)
+	lines := logger.Lines()
+
+	countText := fmt.Sprintf("(%d logs)", len(lines))
+	rows[0] = "  " + titleStyle.Render("SYSTEM LOGS") + "  " + mutedStyle.Render(countText)
+	rows[1] = "  " + mutedStyle.Render("Setas / PgUp / PgDn para rolar · Esc ou Ctrl+L para fechar")
+	rows[2] = borderStyle.Render(strings.Repeat("─", width))
+
+	bodyHeight := height - 4
+	if bodyHeight <= 0 {
+		return rows
+	}
+
+	if len(lines) == 0 {
+		rows[4] = "  " + mutedStyle.Render("Nenhum log registrado até o momento.")
+		return rows
+	}
+
+	wrapWidth := max(1, width-4)
+	var formatted []string
+	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F87171"))
+	okStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#34D399"))
+
+	for _, line := range lines {
+		for _, w := range wrapChatText(line, wrapWidth) {
+			lower := strings.ToLower(w)
+			switch {
+			case strings.Contains(lower, "fail"), strings.Contains(lower, "err"), strings.Contains(lower, "timeout"):
+				formatted = append(formatted, "  "+errStyle.Render(w))
+			case strings.Contains(lower, "ready"), strings.Contains(lower, "connected"), strings.Contains(lower, "confirmed"), strings.Contains(lower, "listening"):
+				formatted = append(formatted, "  "+okStyle.Render(w))
+			default:
+				formatted = append(formatted, "  "+mutedStyle.Render(w))
+			}
+		}
+	}
+
+	maxScroll := max(0, len(formatted)-bodyHeight)
+	scroll := min(m.logsScroll, maxScroll)
+
+	end := max(0, len(formatted)-scroll)
+	start := max(0, end-bodyHeight)
+
+	for i, l := range formatted[start:end] {
+		r := 3 + i
+		if r >= height-1 {
+			break
+		}
+		rows[r] = l
+	}
+
+	return rows
+}
+

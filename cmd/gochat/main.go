@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/JoaoVitor615/gochat/internal/chat/cli"
+	"github.com/JoaoVitor615/gochat/internal/chat/logger"
 	"github.com/joho/godotenv"
 )
 
@@ -19,6 +20,12 @@ func main() {
 }
 
 func run() (err error) {
+	// Initialize logger to keep in-memory history and write to ~/.gochat/gochat.log without corrupting the TUI.
+	_ = logger.Init()
+	defer func() {
+		_ = logger.Close()
+	}()
+
 	// Load .env.chat if present in current working directory.
 	_ = godotenv.Load(".env.chat")
 
