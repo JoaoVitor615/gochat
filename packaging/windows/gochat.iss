@@ -1,5 +1,5 @@
-; Inno Setup Script para o GoChat
-; Gera um instalador gráfico para Windows (.exe)
+; Inno Setup Script for GoChat
+; Generates a Windows graphical installer (.exe)
 
 #define MyAppName "GoChat"
 #define MyAppPublisher "GoChat"
@@ -11,7 +11,7 @@
 #endif
 
 [Setup]
-; Identificador único do aplicativo (GUID)
+; Unique Application Identifier (GUID)
 AppId={{D37B4582-82A1-4F23-9F7C-7A5E04D1A8F2}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
@@ -29,12 +29,18 @@ WizardStyle=modern
 ChangesEnvironment=yes
 
 [Languages]
-Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
+
+[CustomMessages]
+english.EnvPathDescription=Add GoChat to Windows PATH (allows running 'gochat' from any terminal)
+english.SystemConfigGroup=System Settings:
+brazilianportuguese.EnvPathDescription=Adicionar GoChat ao PATH do Windows (permite digitar 'gochat' em qualquer terminal)
+brazilianportuguese.SystemConfigGroup=Configuracoes do Sistema:
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
-Name: "envPath"; Description: "Adicionar GoChat ao PATH do Windows (permite digitar 'gochat' em qualquer terminal)"; GroupDescription: "Configurações do Sistema:"
+Name: "envPath"; Description: "{cm:EnvPathDescription}"; GroupDescription: "{cm:SystemConfigGroup}"
 
 [Files]
 Source: "dist\gochat.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -49,7 +55,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
-// Adicionar o diretório do GoChat ao PATH do usuário no Registro do Windows
+// Add GoChat directory to user PATH in Windows Registry
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Path: string;
