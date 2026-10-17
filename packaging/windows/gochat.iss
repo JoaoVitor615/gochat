@@ -21,7 +21,7 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DisableProgramGroupPage=yes
-OutputDir=dist-installer
+OutputDir=..\..\dist-installer
 OutputBaseFilename=gochat-setup-windows-amd64
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -43,9 +43,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "envPath"; Description: "{cm:EnvPathDescription}"; GroupDescription: "{cm:SystemConfigGroup}"
 
 [Files]
-Source: "dist\gochat.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: ".env.chat.example"; DestDir: "{app}"; Flags: ignoreversion
-Source: ".env.chat.example"; DestDir: "{app}"; DestName: ".env.chat"; Flags: onlyifdestfiledoesntexist
+Source: "..\..\dist\gochat.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\.env.chat.example"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\.env.chat.example"; DestDir: "{app}"; DestName: ".env.chat"; Flags: onlyifdestfiledoesntexist
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
