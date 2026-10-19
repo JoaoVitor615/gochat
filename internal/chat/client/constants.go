@@ -6,3 +6,5 @@ const ACCEPTANCES_ENDPOINT = "/acceptances"
 const ACK_ACCEPTANCES_ENDPOINT = "/acceptances/ack"
 const HEARTBEAT_ENDPOINT = "/heartbeat"
 const OBSERVER_ENDPOINT = "/observer"
+const PEER_ENDPOINT = "/peer"
+

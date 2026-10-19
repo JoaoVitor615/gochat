@@ -171,3 +171,40 @@ func TestClient_ListAcceptances_SendsAuthHeaders(t *testing.T) {
 		t.Errorf("unexpected acceptances: %+v", res)
 	}
 }
+
+func TestClient_GetPeerAddresses(t *testing.T) {
+	expectedPeerID := "12D3KooWPeerB"
+	expectedAddrs := []string{"/ip4/192.168.1.50/tcp/4001"}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != PEER_ENDPOINT {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Query().Get("peer_id") != expectedPeerID {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(GetPeerResponse{
+			PeerID:    expectedPeerID,
+			Addresses: expectedAddrs,
+		})
+	}))
+	defer server.Close()
+
+	c, err := NewClient(server.URL)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	addrs, err := c.GetPeerAddresses(context.Background(), expectedPeerID)
+	if err != nil {
+		t.Fatalf("get peer addresses failed: %v", err)
+	}
+	if len(addrs) != 1 || addrs[0] != expectedAddrs[0] {
+		t.Errorf("expected %v, got %v", expectedAddrs, addrs)
+	}
+}
+

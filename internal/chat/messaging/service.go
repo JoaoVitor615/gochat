@@ -45,6 +45,21 @@ type Service struct {
 
 	locksMu   sync.Mutex
 	peerLocks map[string]*sync.Mutex
+
+	resolver       PeerResolver
+	onAddrsUpdated func(peerID string, addrs []string)
+}
+
+// PeerResolver fetches the latest multiaddresses for a peer from Discovery.
+type PeerResolver func(ctx context.Context, peerID string) ([]string, error)
+
+// SetResolver configures a fallback address resolver and an optional callback
+// invoked when new addresses are successfully resolved and registered.
+func (s *Service) SetResolver(resolver PeerResolver, onUpdated ...func(peerID string, addrs []string)) {
+	s.resolver = resolver
+	if len(onUpdated) > 0 {
+		s.onAddrsUpdated = onUpdated[0]
+	}
 }
 
 func New(h host.Host, localPeerID string, store storage.Repository, notifier func(storage.StoredMessage), privKey ...ed25519.PrivateKey) *Service {
@@ -263,6 +278,16 @@ func (s *Service) deliver(ctx context.Context, peerID peer.ID, envelope message.
 		wireEnvelope.Signature = crypto.SignMessage(s.privateKey, wireEnvelope)
 	}
 	written, sendErr := p2p.SendMessageAndWaitForAck(ctx, s.host, peerID, wireEnvelope)
+	if sendErr != nil && !written && s.resolver != nil {
+		if newAddrs, err := s.resolver(ctx, peerID.String()); err == nil && len(newAddrs) > 0 {
+			if addErr := s.AddPeerAddresses(peerID.String(), newAddrs); addErr == nil {
+				if s.onAddrsUpdated != nil {
+					s.onAddrsUpdated(peerID.String(), newAddrs)
+				}
+				written, sendErr = p2p.SendMessageAndWaitForAck(ctx, s.host, peerID, wireEnvelope)
+			}
+		}
+	}
 	if sendErr != nil {
 		if written {
 			if err := s.store.UpdateMessageStatus(context.WithoutCancel(ctx), envelope.ID, message.DeliverySent); err != nil {

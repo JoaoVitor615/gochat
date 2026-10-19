@@ -69,6 +69,15 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 	}
 
 	messenger := messaging.New(h, a.Identity.PeerID, a.Store, a.Bus.Publish, a.Identity.PrivateKey)
+	if a.DiscoveryClient != nil {
+		messenger.SetResolver(func(ctx context.Context, peerID string) ([]string, error) {
+			resolveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			return a.DiscoveryClient.GetPeerAddresses(resolveCtx, peerID)
+		}, func(peerID string, addrs []string) {
+			_ = a.Store.SavePeer(context.Background(), storage.Peer{PeerID: peerID, Addresses: addrs})
+		})
+	}
 	a.Messenger = messenger
 	savedPeers, err := a.Store.ListPeers(ctx)
 	if err != nil {
@@ -103,7 +112,7 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 	go func() {
 		defer close(pingDone)
 		time.Sleep(500 * time.Millisecond)
-		runPresencePing(pingCtx, h, a.Store, a.Bus)
+		runPresencePing(pingCtx, h, a.Store, a.Bus, a.DiscoveryClient, messenger)
 
 		ticker := time.NewTicker(presencePingInterval)
 		defer ticker.Stop()
@@ -113,7 +122,7 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 			case <-pingCtx.Done():
 				return
 			case <-ticker.C:
-				runPresencePing(pingCtx, h, a.Store, a.Bus)
+				runPresencePing(pingCtx, h, a.Store, a.Bus, a.DiscoveryClient, messenger)
 			}
 		}
 	}()
@@ -165,7 +174,7 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 	}, nil
 }
 
-func runPresencePing(ctx context.Context, h host.Host, store storage.Repository, bus *events.Bus) {
+func runPresencePing(ctx context.Context, h host.Host, store storage.Repository, bus *events.Bus, client *client.Client, messenger *messaging.Service) {
 	if ctx.Err() != nil || h == nil || store == nil {
 		return
 	}
@@ -179,12 +188,29 @@ func runPresencePing(ctx context.Context, h host.Host, store storage.Repository,
 			continue
 		}
 		go func(peerIDStr string, target peer.ID) {
-			if err := p2p.PingPeer(ctx, h, target); err == nil {
+			pingErr := p2p.PingPeer(ctx, h, target)
+			if pingErr != nil && client != nil {
+				resolveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				defer cancel()
+				if newAddrs, err := client.GetPeerAddresses(resolveCtx, peerIDStr); err == nil && len(newAddrs) > 0 {
+					if messenger != nil {
+						_ = messenger.AddPeerAddresses(peerIDStr, newAddrs)
+					}
+					_ = store.SavePeer(context.Background(), storage.Peer{PeerID: peerIDStr, Addresses: newAddrs})
+					pingErr = p2p.PingPeer(ctx, h, target)
+				}
+			}
+			if pingErr == nil {
 				now := time.Now().UTC()
 				if bus != nil {
 					bus.PublishPresence(events.PeerPresence{PeerID: peerIDStr, LastSeenAt: now})
 				}
 				_ = store.SavePeer(context.Background(), storage.Peer{PeerID: peerIDStr, LastSeenAt: now})
+				if messenger != nil {
+					go func() {
+						_ = messenger.RetryPeer(ctx, peerIDStr)
+					}()
+				}
 			}
 		}(p.PeerID, targetID)
 	}

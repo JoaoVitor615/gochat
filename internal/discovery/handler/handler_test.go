@@ -355,3 +355,71 @@ func TestAcceptances_SpoofedSignature(t *testing.T) {
 		t.Fatalf("expected 401 Unauthorized for spoofed acceptances query, got %d", w.Code)
 	}
 }
+
+func TestGetPeer_Success(t *testing.T) {
+	h, repo := setupTestHandler()
+	_, peerID := generatePeer(t)
+	expectedAddrs := []string{"/ip4/192.168.1.100/tcp/4001"}
+	_ = repo.SetPeer(context.Background(), peerID, expectedAddrs)
+
+	req := httptest.NewRequest(http.MethodGet, "/peer?peer_id="+peerID, nil)
+	w := httptest.NewRecorder()
+
+	h.GetPeer(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp peerResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.PeerID != peerID {
+		t.Fatalf("expected peer_id %s, got %s", peerID, resp.PeerID)
+	}
+	if len(resp.Addresses) != 1 || resp.Addresses[0] != expectedAddrs[0] {
+		t.Fatalf("expected addresses %v, got %v", expectedAddrs, resp.Addresses)
+	}
+}
+
+func TestGetPeer_NotFound(t *testing.T) {
+	h, _ := setupTestHandler()
+	_, peerID := generatePeer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/peer?peer_id="+peerID, nil)
+	w := httptest.NewRecorder()
+
+	h.GetPeer(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found, got %d", w.Code)
+	}
+}
+
+func TestGetPeer_MissingParam(t *testing.T) {
+	h, _ := setupTestHandler()
+
+	req := httptest.NewRequest(http.MethodGet, "/peer", nil)
+	w := httptest.NewRecorder()
+
+	h.GetPeer(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d", w.Code)
+	}
+}
+
+func TestGetPeer_InvalidPeerID(t *testing.T) {
+	h, _ := setupTestHandler()
+
+	req := httptest.NewRequest(http.MethodGet, "/peer?peer_id=invalid-peer-id", nil)
+	w := httptest.NewRecorder()
+
+	h.GetPeer(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d", w.Code)
+	}
+}
+

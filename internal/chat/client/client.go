@@ -170,6 +170,16 @@ func (c *Client) GetObserver(ctx context.Context) (*ObserverInfo, error) {
 	return &observerInfo, nil
 }
 
+func (c *Client) GetPeerAddresses(ctx context.Context, peerID string) ([]string, error) {
+	endpoint := PEER_ENDPOINT + "?peer_id=" + url.QueryEscape(peerID)
+	var response GetPeerResponse
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, nil); err != nil {
+		return nil, fmt.Errorf("get peer addresses: %w", err)
+	}
+	return response.Addresses, nil
+}
+
+
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any, headers map[string]string) error {
 	if c == nil || c.httpClient == nil {
 		return errors.New("discovery client is not initialized")

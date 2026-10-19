@@ -230,3 +230,96 @@ func TestMessaging_TamperedMessageRejected(t *testing.T) {
 	}
 }
 
+func TestMessaging_DynamicAddressResolution(t *testing.T) {
+	tempDir := t.TempDir()
+
+	aliceID, aliceStore := createTestPeer(t, tempDir)
+	defer aliceStore.Close()
+
+	bobID, bobStore := createTestPeer(t, tempDir)
+	defer bobStore.Close()
+
+	aliceHost, err := p2p.NewHost(aliceID, 0)
+	if err != nil {
+		t.Fatalf("start alice host: %v", err)
+	}
+	defer aliceHost.Close()
+
+	bobHost, err := p2p.NewHost(bobID, 0)
+	if err != nil {
+		t.Fatalf("start bob host: %v", err)
+	}
+	defer bobHost.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	bobReceived := make(chan storage.StoredMessage, 1)
+	p2p.SetStreamHandler(bobHost, func(stream network.Stream) {
+		_ = p2p.HandleStream(ctx, stream, bobStore, bobID.PeerID, func(sm storage.StoredMessage) {
+			bobReceived <- sm
+		}, bobID.PrivateKey)
+	})
+
+	aliceMessenger := messaging.New(aliceHost, aliceID.PeerID, aliceStore, nil, aliceID.PrivateKey)
+
+	// Bob's actual addresses
+	bobAddrsInfo, err := peer.AddrInfoToP2pAddrs(&peer.AddrInfo{
+		ID:    bobHost.ID(),
+		Addrs: bobHost.Addrs(),
+	})
+	if err != nil {
+		t.Fatalf("bob addr info to p2p addrs: %v", err)
+	}
+	bobAddrs := make([]string, len(bobAddrsInfo))
+	for i, addr := range bobAddrsInfo {
+		bobAddrs[i] = addr.String()
+	}
+
+	// Register a dummy/invalid address for Bob initially
+	dummyAddr := "/ip4/127.0.0.1/tcp/59999/p2p/" + bobID.PeerID
+	_ = aliceMessenger.AddPeerAddresses(bobID.PeerID, []string{dummyAddr})
+
+	resolverCalled := false
+	updatedPeerID := ""
+	var updatedAddrs []string
+
+	aliceMessenger.SetResolver(func(ctx context.Context, peerID string) ([]string, error) {
+		resolverCalled = true
+		if peerID == bobID.PeerID {
+			return bobAddrs, nil
+		}
+		return nil, nil
+	}, func(peerID string, addrs []string) {
+		updatedPeerID = peerID
+		updatedAddrs = addrs
+	})
+
+	result, err := aliceMessenger.Send(ctx, bobID.PeerID, "Hello via resolved address!")
+	if err != nil {
+		t.Fatalf("send message failed: %v", err)
+	}
+	if result.DeliveryError != nil {
+		t.Fatalf("delivery error: %v", result.DeliveryError)
+	}
+	if result.Status != message.DeliveryDelivered {
+		t.Fatalf("expected status delivered, got %s", result.Status)
+	}
+	if !resolverCalled {
+		t.Fatal("expected resolver to be called upon dial failure")
+	}
+	if updatedPeerID != bobID.PeerID || len(updatedAddrs) == 0 {
+		t.Fatalf("expected onUpdated callback with bobID and addrs, got peer %s, addrs %v", updatedPeerID, updatedAddrs)
+	}
+
+	select {
+	case msg := <-bobReceived:
+		if msg.Envelope.Content != "Hello via resolved address!" {
+			t.Fatalf("expected content 'Hello via resolved address!', got %q", msg.Envelope.Content)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for bob to receive message")
+	}
+}
+
+

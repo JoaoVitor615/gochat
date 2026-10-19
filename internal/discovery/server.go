@@ -22,6 +22,7 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/heartbeat", s.handler.Heartbeat)
+	mux.HandleFunc("/peer", s.handler.GetPeer)
 	mux.HandleFunc("/invite", s.handler.Invite)
 	mux.HandleFunc("/resolve", s.handler.Resolve)
 	mux.HandleFunc("/acceptances", s.handler.Acceptances)

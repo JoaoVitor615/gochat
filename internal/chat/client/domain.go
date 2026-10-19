@@ -53,3 +53,9 @@ type ObserverInfo struct {
 	Address string `json:"address"`
 }
 
+type GetPeerResponse struct {
+	PeerID    string   `json:"peer_id"`
+	Addresses []string `json:"addresses"`
+}
+
+

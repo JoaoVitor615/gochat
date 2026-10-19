@@ -271,6 +271,38 @@ func (h *Handler) Observer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, observerResponse{Address: address})
 }
 
+type peerResponse struct {
+	PeerID    string   `json:"peer_id"`
+	Addresses []string `json:"addresses"`
+}
+
+// GetPeer returns the latest multiaddresses of a registered peer.
+func (h *Handler) GetPeer(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	peerID := r.URL.Query().Get("peer_id")
+	if !validPeerID(peerID) {
+		writeError(w, http.StatusBadRequest, "valid peer_id is required")
+		return
+	}
+
+	addresses, err := h.service.GetPeer(r.Context(), peerID)
+	if err != nil {
+		if errors.Is(err, service.ErrPeerOffline) {
+			writeError(w, http.StatusNotFound, "peer is offline or not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, peerResponse{
+		PeerID:    peerID,
+		Addresses: addresses,
+	})
+}
+
 func decodePeerRequest(w http.ResponseWriter, r *http.Request) (peerRequest, bool) {
 	var req peerRequest
 	if !decodeJSON(w, r, &req) {

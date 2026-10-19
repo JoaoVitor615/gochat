@@ -40,6 +40,17 @@ func (s *Service) Heartbeat(ctx context.Context, peerID string, addresses []stri
 	return nil
 }
 
+func (s *Service) GetPeer(ctx context.Context, peerID string) ([]string, error) {
+	addresses, err := s.repository.GetPeer(ctx, peerID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrPeerOffline
+		}
+		return nil, fmt.Errorf("get peer: %w", err)
+	}
+	return addresses, nil
+}
+
 func (s *Service) CreateInvite(ctx context.Context, peerID string) (string, error) {
 	code, err := generateInviteCode()
 	if err != nil {
