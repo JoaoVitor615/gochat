@@ -3,6 +3,7 @@ package messaging
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JoaoVitor615/gochat/internal/chat/crypto"
 	"github.com/JoaoVitor615/gochat/internal/chat/message"
 	"github.com/JoaoVitor615/gochat/internal/chat/p2p"
 	"github.com/JoaoVitor615/gochat/internal/chat/storage"
@@ -39,16 +41,22 @@ type Service struct {
 	localPeerID string
 	store       storage.Repository
 	notifier    func(storage.StoredMessage)
+	privateKey  ed25519.PrivateKey
 
 	locksMu   sync.Mutex
 	peerLocks map[string]*sync.Mutex
 }
 
-func New(h host.Host, localPeerID string, store storage.Repository, notifier func(storage.StoredMessage)) *Service {
+func New(h host.Host, localPeerID string, store storage.Repository, notifier func(storage.StoredMessage), privKey ...ed25519.PrivateKey) *Service {
+	var pk ed25519.PrivateKey
+	if len(privKey) > 0 && privKey[0] != nil {
+		pk = privKey[0]
+	}
 	return &Service{
 		host: h, localPeerID: localPeerID, store: store,
-		notifier:  notifier,
-		peerLocks: make(map[string]*sync.Mutex),
+		notifier:   notifier,
+		privateKey: pk,
+		peerLocks:  make(map[string]*sync.Mutex),
 	}
 }
 
@@ -244,7 +252,17 @@ func (s *Service) RetryAll(ctx context.Context) error {
 }
 
 func (s *Service) deliver(ctx context.Context, peerID peer.ID, envelope message.Message) error {
-	written, sendErr := p2p.SendMessageAndWaitForAck(ctx, s.host, peerID, envelope)
+	wireEnvelope := envelope
+	if s.privateKey != nil {
+		encryptedContent, err := crypto.Encrypt([]byte(envelope.Content), peerID.String())
+		if err != nil {
+			return fmt.Errorf("e2ee encrypt message: %w", err)
+		}
+		wireEnvelope.Content = encryptedContent
+		wireEnvelope.Encrypted = true
+		wireEnvelope.Signature = crypto.SignMessage(s.privateKey, wireEnvelope)
+	}
+	written, sendErr := p2p.SendMessageAndWaitForAck(ctx, s.host, peerID, wireEnvelope)
 	if sendErr != nil {
 		if written {
 			if err := s.store.UpdateMessageStatus(context.WithoutCancel(ctx), envelope.ID, message.DeliverySent); err != nil {
