@@ -8,6 +8,7 @@ import (
 
 	"github.com/JoaoVitor615/gochat/internal/chat/message"
 	"github.com/JoaoVitor615/gochat/internal/chat/storage"
+	"github.com/JoaoVitor615/gochat/internal/i18n"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -79,8 +80,8 @@ func TestModel_SplashError(t *testing.T) {
 	if !strings.Contains(view, "failed to start peer host") {
 		t.Errorf("expected view to display error, got:\n%s", view)
 	}
-	if !strings.Contains(view, "pressione 'q' para sair") {
-		t.Errorf("expected view to display quit hint, got:\n%s", view)
+	if !strings.Contains(view, i18n.T.SplashQuitHint()) {
+		t.Errorf("expected view to display quit hint %q, got:\n%s", i18n.T.SplashQuitHint(), view)
 	}
 
 	// Pressing 'q' should quit when in error state
@@ -91,19 +92,29 @@ func TestModel_SplashError(t *testing.T) {
 }
 
 func TestPeerLastSeen(t *testing.T) {
-	// Zero time
+	orig := i18n.CurrentLanguage()
+	defer i18n.SetLanguage(orig)
+
+	sampleTime := time.Date(2026, 10, 18, 14, 30, 0, 0, time.Local)
+
+	// Test pt-BR
+	i18n.SetLanguage(i18n.LangPtBR)
 	if got := peerLastSeen(time.Time{}); got != "presença não verificada" {
-		t.Errorf("got %q, want 'presença não verificada'", got)
+		t.Errorf("pt-BR got %q, want 'presença não verificada'", got)
+	}
+	expectedPt := "visto 18/10 14:30"
+	if got := peerLastSeen(sampleTime); got != expectedPt {
+		t.Errorf("pt-BR got %q, want %q", got, expectedPt)
 	}
 
-	// Given timestamp
-	sampleTime := time.Date(2026, 10, 18, 14, 30, 0, 0, time.Local)
-	expected := "visto 18/10 14:30"
-	if got := peerLastSeen(sampleTime); got != expected {
-		t.Errorf("got %q, want %q", got, expected)
+	// Test en-US
+	i18n.SetLanguage(i18n.LangEnUS)
+	if got := peerLastSeen(time.Time{}); got != "presence unverified" {
+		t.Errorf("en-US got %q, want 'presence unverified'", got)
 	}
-	if strings.Contains(peerLastSeen(sampleTime), "Discovery") {
-		t.Errorf("expected no mention of Discovery, got %q", peerLastSeen(sampleTime))
+	expectedEn := "seen 10/18 14:30"
+	if got := peerLastSeen(sampleTime); got != expectedEn {
+		t.Errorf("en-US got %q, want %q", got, expectedEn)
 	}
 }
 
@@ -126,6 +137,10 @@ func TestIsPeerOnline(t *testing.T) {
 }
 
 func TestModel_PresenceOnlineAndOffline(t *testing.T) {
+	orig := i18n.CurrentLanguage()
+	defer i18n.SetLanguage(orig)
+	i18n.SetLanguage(i18n.LangPtBR)
+
 	m := model{
 		width:   80,
 		height:  24,

@@ -14,6 +14,7 @@ import (
 	"github.com/JoaoVitor615/gochat/internal/chat/message"
 	"github.com/JoaoVitor615/gochat/internal/chat/messaging"
 	"github.com/JoaoVitor615/gochat/internal/chat/storage"
+	"github.com/JoaoVitor615/gochat/internal/i18n"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -190,7 +191,7 @@ func RunWithSplash(ctx context.Context, localPeerID string, api PeerAPI, peerSto
 		busCh:        busCh,
 		presenceCh:   presenceCh,
 		splash:       true,
-		splashStatus: "Conectando à rede P2P...",
+		splashStatus: i18n.T.SplashConnecting(),
 		initFn:       initFn,
 	}
 	for _, saved := range savedPeers {
@@ -322,12 +323,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.splashInitDone = true
 		if msg.err != nil {
 			m.splashErr = msg.err
-			m.splashStatus = "Erro ao conectar"
+			m.splashStatus = i18n.T.SplashError()
 			return m, nil
 		}
 		m.sender = msg.sender
 		m.stopPresence = msg.stopPresence
-		m.splashStatus = "Pronto!"
+		m.splashStatus = i18n.T.SplashConnected()
 		if m.splashMinDone {
 			m.splash = false
 			return m, refreshTickCmd()
@@ -355,7 +356,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.scrollBack = 0
 			}
 			if stored.Envelope.SenderPeerID == m.localID && stored.Status == message.DeliveryDelivered {
-				m.chatNotice = "Entrega confirmada pelo peer."
+				m.chatNotice = i18n.T.NoticeDeliveredAck()
 			}
 		}
 		if idx := m.peerIndex(stored.ConversationPeerID); idx >= 0 {
@@ -382,7 +383,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loadingChat = false
 		if msg.err != nil {
-			m.chatNotice = "Falha ao carregar histórico: " + msg.err.Error()
+			m.chatNotice = i18n.T.NoticeHistoryError(msg.err)
 			return m, nil
 		}
 		m.hasOlder = msg.hasOlder
@@ -404,7 +405,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.err != nil {
-			m.chatNotice = "Não foi possível enfileirar: " + msg.err.Error()
+			m.chatNotice = i18n.T.NoticeQueueError(msg.err)
 			return m, nil
 		}
 		if msg.result.Message.ID != "" {
@@ -425,11 +426,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if msg.result.DeliveryError != nil {
-			m.chatNotice = "Salva localmente; aguardando entrega. " + msg.result.DeliveryError.Error()
+			m.chatNotice = i18n.T.NoticeSavedWaitingDelivery(msg.result.DeliveryError)
 		} else if msg.result.Status == message.DeliveryDelivered {
-			m.chatNotice = "Entrega confirmada pelo peer."
+			m.chatNotice = i18n.T.NoticeDeliveredAck()
 		} else {
-			m.chatNotice = "Mensagem salva na fila local."
+			m.chatNotice = i18n.T.NoticeSavedQueue()
 		}
 	case inviteResult:
 		m.loading = false
@@ -445,7 +446,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.peer == nil || msg.peer.PeerID == "" {
-			m.errText = "A API não retornou o ID do peer."
+			m.errText = i18n.T.AddPanelErrorNoPeerID()
 			return m, nil
 		}
 		m.upsertPeer(peer{
@@ -456,20 +457,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.selected = m.peerIndex(msg.peer.PeerID)
 		m.active = m.selected
 		if msg.persistenceErr != nil {
-			m.errText = fmt.Sprintf("Peer adicionado nesta sessão, mas não salvo localmente: %v", msg.persistenceErr)
+			m.errText = i18n.T.NoticePeerNotSaved(msg.persistenceErr)
 			return m, nil
 		}
 		m.panel, m.code, m.errText = noPanel, "", ""
 		if msg.connectionErr != nil {
-			m.chatNotice = "Peer salvo; conexão P2P direta falhou: " + msg.connectionErr.Error()
+			m.chatNotice = i18n.T.NoticePeerSavedDialFailed(msg.connectionErr)
 		} else {
-			m.chatNotice = "Conexão P2P direta estabelecida."
+			m.chatNotice = i18n.T.NoticeP2PConnected()
 		}
 	case acceptancesResult:
 		m.acceptancePollInFlight = false
 		if msg.err != nil {
 			if m.panel == invitePanel {
-				m.errText = "Falha ao consultar convites aceitos: " + msg.err.Error()
+				m.errText = i18n.T.InvitePanelError(msg.err)
 			}
 			return m, nil
 		}
@@ -494,11 +495,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadingChat = true
 		m.panel, m.invite, m.errText = noPanel, "", ""
 		if accepted.persistenceErr != nil {
-			m.chatNotice = "Convite aceito, mas o contato não foi salvo localmente: " + accepted.persistenceErr.Error()
+			m.chatNotice = i18n.T.NoticeInviteAcceptedNotSaved(accepted.persistenceErr)
 		} else if accepted.connectionErr != nil {
-			m.chatNotice = "Convite aceito; conexão P2P direta falhou: " + accepted.connectionErr.Error()
+			m.chatNotice = i18n.T.NoticeInviteAcceptedDialFailed(accepted.connectionErr)
 		} else {
-			m.chatNotice = "Convite aceito; conexão P2P direta estabelecida."
+			m.chatNotice = i18n.T.NoticeInviteAcceptedConnected()
 		}
 		return m, m.loadHistoryCmd(m.activePeerID(), nil, false)
 	case tea.MouseMsg:
@@ -676,7 +677,7 @@ func (m model) updateAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		code := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(m.code)), "-", "")
 		if len(code) != 9 {
-			m.errText = "O código deve conter 9 caracteres."
+			m.errText = i18n.T.AddPanelErrorLength()
 			return m, nil
 		}
 		m.loading, m.errText = true, ""
@@ -721,11 +722,11 @@ func (m model) updateChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.handleNicknameCommand(rawInput)
 		}
 		if m.sender == nil {
-			m.chatNotice = "O serviço de envio não está disponível."
+			m.chatNotice = i18n.T.NoticeSenderUnavailable()
 			return m, nil
 		}
 		peerID, text := m.activePeerID(), m.input
-		m.sending, m.chatNotice = true, "Enfileirando mensagem…"
+		m.sending, m.chatNotice = true, i18n.T.NoticeEnqueuing()
 		return m, func() tea.Msg {
 			result, err := m.sender.Send(m.ctx, peerID, text)
 			return sendResult{peerID: peerID, text: text, result: result, err: err}
@@ -795,15 +796,15 @@ func (m model) handleNicknameCommand(input string) (tea.Model, tea.Cmd) {
 	}
 
 	if err := m.peerStore.SetPeerDisplayName(m.ctx, peerID, newName); err != nil {
-		m.chatNotice = "Falha ao salvar apelido: " + err.Error()
+		m.chatNotice = i18n.T.NicknamePanelError(err)
 	} else {
 		if idx := m.peerIndex(peerID); idx >= 0 {
 			m.peers[idx].displayName = newName
 		}
 		if newName != "" {
-			m.chatNotice = fmt.Sprintf("Apelido atualizado para %q.", newName)
+			m.chatNotice = i18n.T.NoticeNicknameUpdated()
 		} else {
-			m.chatNotice = "Apelido removido."
+			m.chatNotice = i18n.T.NoticeNicknameRemoved()
 		}
 	}
 	m.input = ""
@@ -829,7 +830,7 @@ func (m model) updateNicknamePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		newName := strings.TrimSpace(m.nicknameInput)
 		if err := m.peerStore.SetPeerDisplayName(m.ctx, targetPeerID, newName); err != nil {
-			m.errText = "Falha ao salvar apelido: " + err.Error()
+			m.errText = i18n.T.NicknamePanelError(err)
 			return m, nil
 		}
 		if idx := m.peerIndex(targetPeerID); idx >= 0 {
@@ -837,9 +838,9 @@ func (m model) updateNicknamePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.panel, m.nicknameInput, m.nicknamePeerID, m.errText = noPanel, "", "", ""
 		if newName != "" {
-			m.chatNotice = fmt.Sprintf("Apelido definido: %s", newName)
+			m.chatNotice = i18n.T.NoticeNicknameUpdated()
 		} else {
-			m.chatNotice = "Apelido removido."
+			m.chatNotice = i18n.T.NoticeNicknameRemoved()
 		}
 	case "backspace", "ctrl+h":
 		if runes := []rune(m.nicknameInput); len(runes) > 0 {
@@ -1094,10 +1095,10 @@ func (m *model) sortPeers() {
 
 func (m model) View() string {
 	if m.width == 0 || m.height == 0 {
-		return "Abrindo gochat..."
+		return i18n.T.OpeningApp()
 	}
 	if m.width < 58 || m.height < 21 {
-		return "Amplie o terminal para pelo menos 58 colunas e 21 linhas."
+		return i18n.T.TerminalTooSmall(58, 21)
 	}
 	if m.splash {
 		return m.splashView()
@@ -1119,16 +1120,18 @@ func (m model) View() string {
 	}
 
 	rows = append(rows, borderStyle.Render("├"+strings.Repeat("─", sideWidth)+"┴"+strings.Repeat("─", mainWidth)+"┤"))
-	footer := " ↑↓/j k navegar  ·  enter abrir  ·  a adicionar  ·  i convidar  ·  n apelido  ·  q sair"
+	footer := i18n.T.FooterHome()
 	if m.active >= 0 {
-		footer = " enter enviar  ·  scroll histórico  ·  ctrl+n apelido  ·  esc voltar  ·  ctrl+u limpar"
+		footer = i18n.T.FooterChat()
 	}
 	if m.panel == nicknamePanel {
-		footer = " enter salvar  ·  esc cancelar  ·  deixe vazio para remover apelido"
+		footer = i18n.T.FooterNickname()
 	} else if m.panel == logsPanel {
-		footer = " ↑↓ rolar  ·  pgup/pgdn rolar rápido  ·  esc / ctrl+l fechar"
+		footer = i18n.T.FooterLogs()
+	} else if m.panel == invitePanel {
+		footer = i18n.T.FooterInviteNew()
 	} else if m.panel != noPanel {
-		footer = " esc fechar  ·  convites expiram após 10 minutos"
+		footer = i18n.T.FooterCancel()
 	}
 	rows = append(rows, frameLine(mutedStyle.Render(footer), innerWidth))
 	rows = append(rows, borderStyle.Render("└"+strings.Repeat("─", innerWidth)+"┘"))
@@ -1137,7 +1140,7 @@ func (m model) View() string {
 
 func (m model) sidebar(width, height int) []string {
 	rows := make([]string, height)
-	rows[0] = "  " + titleStyle.Render("PEERS")
+	rows[0] = "  " + titleStyle.Render(i18n.T.PeersTitle())
 	for i, p := range m.peers {
 		row := 2 + i*3
 		if row+1 >= height-2 {
@@ -1162,12 +1165,12 @@ func (m model) sidebar(width, height int) []string {
 		}
 		rows[row] = label
 		if online {
-			rows[row+1] = "    " + lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render("online")
+			rows[row+1] = "    " + lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render(i18n.T.OnlineStatus())
 		} else {
 			rows[row+1] = mutedStyle.Render("    " + peerLastSeen(p.lastSeenAt))
 		}
 	}
-	rows[height-2] = mutedStyle.Render("  + Adicionar [a]")
+	rows[height-2] = mutedStyle.Render("  " + i18n.T.AddContactButton())
 	return rows
 }
 
@@ -1179,9 +1182,9 @@ func (m model) messageRowCount(width int) int {
 	p := m.peers[m.active]
 	count := 0
 	for _, stored := range m.messages {
-		who, status := "Peer", "recebida"
+		who, status := "Peer", i18n.T.StatusReceived()
 		if stored.Envelope.SenderPeerID == m.localID {
-			who, status = "Você", deliveryLabel(stored.Status)
+			who, status = i18n.T.LabelYou(), deliveryLabel(stored.Status)
 		} else if p.displayName != "" {
 			who = p.displayName
 		}
@@ -1218,8 +1221,8 @@ func (m model) mainArea(width, height int) []string {
 	rows := make([]string, height)
 	if m.active < 0 || m.active >= len(m.peers) {
 		middle := height / 2
-		rows[middle-2] = center(titleStyle.Render("Nenhum peer aberto"), width)
-		rows[middle] = center(mutedStyle.Render("Use [i] para criar convite ou [a] para adicionar"), width)
+		rows[middle-2] = center(titleStyle.Render(i18n.T.NoChatOpenTitle()), width)
+		rows[middle] = center(mutedStyle.Render(i18n.T.NoChatOpenHint()), width)
 		return rows
 	}
 	p := m.peers[m.active]
@@ -1236,23 +1239,23 @@ func (m model) mainArea(width, height int) []string {
 		rows[0] = fmt.Sprintf("  %s %s", circle, titleStyle.Render(shortPeerID(p.id)))
 	}
 	if online {
-		rows[1] = "    " + lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render("online")
+		rows[1] = "    " + lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render(i18n.T.OnlineStatus())
 	} else {
 		rows[1] = "  " + mutedStyle.Render(peerLastSeen(p.lastSeenAt))
 	}
 	messageBottom := height - 4
 	messageRows := make([]string, 0, height)
 	if m.loadingChat && len(m.messages) == 0 {
-		messageRows = append(messageRows, mutedStyle.Render("  Carregando histórico…"))
+		messageRows = append(messageRows, mutedStyle.Render("  "+i18n.T.NoticeLoadingOlder()))
 	} else if len(m.messages) == 0 {
-		messageRows = append(messageRows, mutedStyle.Render("  Ainda não há mensagens. Escreva abaixo."))
+		messageRows = append(messageRows, mutedStyle.Render("  "+i18n.T.EmptyChatPrompt()))
 	} else {
 		for _, stored := range m.messages {
 			envelope := stored.Envelope
 			isLocal := envelope.SenderPeerID == m.localID
-			who, status, headingStyle := "Peer", "recebida", mutedStyle
+			who, status, headingStyle := "Peer", i18n.T.StatusReceived(), mutedStyle
 			if isLocal {
-				who, status, headingStyle = "Você", deliveryLabel(stored.Status), titleStyle
+				who, status, headingStyle = i18n.T.LabelYou(), deliveryLabel(stored.Status), titleStyle
 			} else if p.displayName != "" {
 				who = p.displayName
 			}
@@ -1285,7 +1288,7 @@ func (m model) mainArea(width, height int) []string {
 	}
 	rows[height-2] = "  > " + ansi.Truncate(m.input, max(0, width-8), "…")
 	if m.sending {
-		rows[height-2] += mutedStyle.Render("  enviando…")
+		rows[height-2] += mutedStyle.Render("  " + i18n.T.SendingStatus())
 	}
 	return rows
 }
@@ -1293,11 +1296,11 @@ func (m model) mainArea(width, height int) []string {
 func deliveryLabel(status message.DeliveryStatus) string {
 	switch status {
 	case message.DeliveryPending:
-		return "na fila"
+		return i18n.T.StatusQueued()
 	case message.DeliverySent:
-		return "enviado · aguardando confirmação"
+		return i18n.T.StatusSent()
 	case message.DeliveryDelivered:
-		return "entregue"
+		return i18n.T.StatusDelivered()
 	default:
 		return string(status)
 	}
@@ -1316,11 +1319,11 @@ func (m model) dialog(width, height int) []string {
 			field = field[:3] + "-" + field[3:6] + "-" + field[6:]
 		}
 		field = ansi.Truncate(field, boxWidth-8, "…")
-		instruction := "digite o código · enter adicionar"
+		instruction := i18n.T.InstructionAddPeer()
 		if m.loading {
-			instruction = "consultando convite…"
+			instruction = i18n.T.InstructionQueryingInvite()
 		}
-		content = []string{titleStyle.Render("ADICIONAR PEER"), "", "Código de convite", "", lipgloss.NewStyle().Foreground(accent).Render("[ " + field + " ]"), "", mutedStyle.Render(instruction)}
+		content = []string{titleStyle.Render(i18n.T.AddPanelTitle()), "", i18n.T.AddPanelPrompt(), "", lipgloss.NewStyle().Foreground(accent).Render("[ " + field + " ]"), "", mutedStyle.Render(instruction)}
 	} else if m.panel == nicknamePanel {
 		targetPeerID := m.nicknamePeerID
 		displayName := ""
@@ -1333,32 +1336,32 @@ func (m model) dialog(width, height int) []string {
 		}
 		field := m.nicknameInput
 		if field == "" {
-			field = "nenhum apelido (vazio)"
+			field = i18n.T.NoNicknamePlaceholder()
 		}
 		field = ansi.Truncate(field, boxWidth-8, "…")
-		instruction := "digite o apelido · enter salvar · esc cancelar"
+		instruction := i18n.T.InstructionNickname()
 		content = []string{
-			titleStyle.Render("APELIDO DO CONTATO"),
+			titleStyle.Render(i18n.T.NicknamePanelTitle()),
 			"",
-			mutedStyle.Render("Contato: " + contactDesc),
+			mutedStyle.Render(i18n.T.ContactLabel() + contactDesc),
 			"",
 			lipgloss.NewStyle().Foreground(accent).Render("[ " + field + " ]"),
 			"",
 			mutedStyle.Render(instruction),
 		}
 	} else {
-		code := "gerando convite…"
+		code := i18n.T.InvitePanelGenerating()
 		if !m.loading {
 			code = m.invite
 			if code == "" && m.errText != "" {
 				code = "—"
 			}
 		}
-		instruction := "compartilhe o código · r novo · esc fechar"
+		instruction := i18n.T.InstructionInvite()
 		if m.loading {
-			instruction = "aguarde a resposta da API…"
+			instruction = i18n.T.InstructionWaitingAPI()
 		}
-		content = []string{titleStyle.Render("SEU CONVITE"), "", "Compartilhe este código:", "", center(titleStyle.Render(code), boxWidth-4), "", center(mutedStyle.Render("válido por 10 minutos"), boxWidth-4), "", mutedStyle.Render(instruction)}
+		content = []string{titleStyle.Render(i18n.T.InvitePanelTitle()), "", i18n.T.InvitePanelPrompt(), "", center(titleStyle.Render(code), boxWidth-4), "", center(mutedStyle.Render(i18n.T.InvitePanelNotice()), boxWidth-4), "", mutedStyle.Render(instruction)}
 	}
 	if m.errText != "" {
 		errorStyle := lipgloss.NewStyle().
@@ -1394,10 +1397,7 @@ func shortPeerID(id string) string {
 }
 
 func peerLastSeen(lastSeenAt time.Time) string {
-	if lastSeenAt.IsZero() {
-		return "presença não verificada"
-	}
-	return "visto " + lastSeenAt.Local().Format("02/01 15:04")
+	return i18n.T.LastSeen(lastSeenAt)
 }
 
 const presenceOnlineThreshold = 30 * time.Second
@@ -1446,8 +1446,8 @@ func (m model) logsView(width, height int) []string {
 	lines := logger.Lines()
 
 	countText := fmt.Sprintf("(%d logs)", len(lines))
-	rows[0] = "  " + titleStyle.Render("SYSTEM LOGS") + "  " + mutedStyle.Render(countText)
-	rows[1] = "  " + mutedStyle.Render("Setas / PgUp / PgDn para rolar · Esc ou Ctrl+L para fechar")
+	rows[0] = "  " + titleStyle.Render(i18n.T.LogsPanelTitle()) + "  " + mutedStyle.Render(countText)
+	rows[1] = "  " + mutedStyle.Render(i18n.T.LogsPanelSubtitle())
 	rows[2] = borderStyle.Render(strings.Repeat("─", width))
 
 	bodyHeight := height - 4
@@ -1456,7 +1456,7 @@ func (m model) logsView(width, height int) []string {
 	}
 
 	if len(lines) == 0 {
-		rows[4] = "  " + mutedStyle.Render("Nenhum log registrado até o momento.")
+		rows[4] = "  " + mutedStyle.Render(i18n.T.LogsPanelEmpty())
 		return rows
 	}
 
@@ -1511,7 +1511,7 @@ func (m model) splashView() string {
 	var statusLine string
 	if m.splashErr != nil {
 		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F87171")).Bold(true)
-		statusLine = errStyle.Render("✗ "+m.splashErr.Error()) + "\n\n" + mutedStyle.Render("pressione 'q' para sair")
+		statusLine = errStyle.Render("✗ "+m.splashErr.Error()) + "\n\n" + mutedStyle.Render(i18n.T.SplashQuitHint())
 	} else {
 		spinner := lipgloss.NewStyle().Foreground(accent).Bold(true).Render(spinnerFrames[m.splashSpinnerIdx])
 		statusLine = fmt.Sprintf("%s  %s", spinner, lipgloss.NewStyle().Foreground(white).Render(m.splashStatus))
