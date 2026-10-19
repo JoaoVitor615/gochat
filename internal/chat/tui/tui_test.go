@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -86,3 +87,21 @@ func TestModel_SplashError(t *testing.T) {
 		t.Error("expected quitCmd when pressing 'q' on splash error")
 	}
 }
+
+func TestPeerLastSeen(t *testing.T) {
+	// Zero time
+	if got := peerLastSeen(time.Time{}); got != "presença não verificada" {
+		t.Errorf("got %q, want 'presença não verificada'", got)
+	}
+
+	// Given timestamp
+	sampleTime := time.Date(2026, 10, 18, 14, 30, 0, 0, time.Local)
+	expected := "visto 18/10 14:30"
+	if got := peerLastSeen(sampleTime); got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+	if strings.Contains(peerLastSeen(sampleTime), "Discovery") {
+		t.Errorf("expected no mention of Discovery, got %q", peerLastSeen(sampleTime))
+	}
+}
+

@@ -1263,7 +1263,7 @@ func peerLastSeen(lastSeenAt time.Time) string {
 	if lastSeenAt.IsZero() {
 		return "presença não verificada"
 	}
-	return "visto via Discovery " + lastSeenAt.Local().Format("02/01 15:04")
+	return "visto " + lastSeenAt.Local().Format("02/01 15:04")
 }
 
 func frameLine(value string, width int) string {
