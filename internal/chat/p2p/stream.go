@@ -2,9 +2,11 @@ package p2p
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 
+	"github.com/JoaoVitor615/gochat/internal/chat/crypto"
 	"github.com/JoaoVitor615/gochat/internal/chat/message"
 	"github.com/JoaoVitor615/gochat/internal/chat/storage"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -26,7 +28,7 @@ func SetStreamHandler(h host.Host, handler network.StreamHandler) {
 	h.SetStreamHandler(ProtocolID, handler)
 }
 
-func HandleStream(ctx context.Context, stream network.Stream, store storage.Repository, localPeerID string, notifier func(storage.StoredMessage)) error {
+func HandleStream(ctx context.Context, stream network.Stream, store storage.Repository, localPeerID string, notifier func(storage.StoredMessage), privKey ...ed25519.PrivateKey) error {
 	if ctx == nil || stream == nil || store == nil || localPeerID == "" {
 		return errors.New("handle P2P stream: context, stream, store, and local peer ID are required")
 	}
@@ -51,6 +53,30 @@ func HandleStream(ctx context.Context, stream network.Stream, store storage.Repo
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+
+	// Verify digital signature if present
+	if msg.Signature != "" {
+		if err := crypto.VerifyMessage(msg); err != nil {
+			return fmt.Errorf("verify message signature: %w", err)
+		}
+	}
+
+	// Decrypt E2EE content if encrypted
+	if msg.Encrypted {
+		var localPrivKey ed25519.PrivateKey
+		if len(privKey) > 0 && privKey[0] != nil {
+			localPrivKey = privKey[0]
+		}
+		if localPrivKey == nil {
+			return errors.New("cannot decrypt E2EE message: local private key not configured")
+		}
+		decryptedBytes, err := crypto.Decrypt(msg.Content, localPrivKey)
+		if err != nil {
+			return fmt.Errorf("decrypt E2EE message: %w", err)
+		}
+		msg.Content = string(decryptedBytes)
+		msg.Encrypted = false
 	}
 	msg.CreatedAt = msg.CreatedAt.UTC()
 	storedMsg := storage.StoredMessage{

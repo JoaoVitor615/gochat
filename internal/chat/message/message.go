@@ -11,8 +11,10 @@ type Message struct {
 	RecipientPeerID string    `json:"recipient_peer_id,omitempty"`
 	CreatedAt       time.Time `json:"created_at,omitempty"`
 	LamportClock    uint64    `json:"lamport_clock,omitempty"`
-	Content         string
-	ProtocolVersion int `json:"protocol_version,omitempty"`
+	Content         string    `json:"content"`
+	Signature       string    `json:"signature,omitempty"`
+	Encrypted       bool      `json:"encrypted,omitempty"`
+	ProtocolVersion int       `json:"protocol_version,omitempty"`
 }
 
 // Compare returns -1 if left < right, 1 if left > right, and 0 if left == right.
