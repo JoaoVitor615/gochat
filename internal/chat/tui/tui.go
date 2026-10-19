@@ -86,6 +86,14 @@ type model struct {
 	scrollBack             int
 	logsScroll             int
 	busCh                  chan storage.StoredMessage
+	splash                 bool
+	splashSpinnerIdx       int
+	splashStatus           string
+	splashErr              error
+	splashInitDone         bool
+	splashMinDone          bool
+	stopPresence           func()
+	initFn                 func(context.Context) (MessageSender, func(), error)
 }
 
 type inviteResult struct {
@@ -150,6 +158,13 @@ var (
 
 // Run opens the chat TUI and keeps peer operations tied to the app context.
 func Run(ctx context.Context, localPeerID string, api PeerAPI, peerStore PeerStore, sender MessageSender, bus *events.Bus) error {
+	return RunWithSplash(ctx, localPeerID, api, peerStore, bus, func(context.Context) (MessageSender, func(), error) {
+		return sender, nil, nil
+	})
+}
+
+// RunWithSplash opens the chat TUI with an animated splash screen while executing the initialization function.
+func RunWithSplash(ctx context.Context, localPeerID string, api PeerAPI, peerStore PeerStore, bus *events.Bus, initFn func(context.Context) (MessageSender, func(), error)) error {
 	savedPeers, err := peerStore.ListPeers(ctx)
 	if err != nil {
 		return fmt.Errorf("load saved peers: %w", err)
@@ -160,13 +175,15 @@ func Run(ctx context.Context, localPeerID string, api PeerAPI, peerStore PeerSto
 		defer bus.Unsubscribe(busCh)
 	}
 	initial := model{
-		ctx:       ctx,
-		api:       api,
-		peerStore: peerStore,
-		sender:    sender,
-		localID:   localPeerID,
-		active:    -1,
-		busCh:     busCh,
+		ctx:          ctx,
+		api:          api,
+		peerStore:    peerStore,
+		localID:      localPeerID,
+		active:       -1,
+		busCh:        busCh,
+		splash:       true,
+		splashStatus: "Conectando à rede P2P...",
+		initFn:       initFn,
 	}
 	for _, saved := range savedPeers {
 		initial.peers = append(initial.peers, peer{
@@ -174,8 +191,46 @@ func Run(ctx context.Context, localPeerID string, api PeerAPI, peerStore PeerSto
 			addresses: saved.Addresses, lastSeenAt: saved.LastSeenAt,
 		})
 	}
-	_, err = tea.NewProgram(initial, tea.WithAltScreen(), tea.WithContext(ctx), tea.WithMouseCellMotion()).Run()
+	p := tea.NewProgram(initial, tea.WithAltScreen(), tea.WithContext(ctx), tea.WithMouseCellMotion())
+	finalModel, err := p.Run()
+	if finalM, ok := finalModel.(model); ok && finalM.stopPresence != nil {
+		finalM.stopPresence()
+	}
 	return err
+}
+
+type splashTickMsg time.Time
+type splashMinDurationMsg struct{}
+type splashInitResult struct {
+	sender       MessageSender
+	stopPresence func()
+	err          error
+}
+
+func splashTickCmd() tea.Cmd {
+	return tea.Tick(75*time.Millisecond, func(t time.Time) tea.Msg {
+		return splashTickMsg(t)
+	})
+}
+
+func splashMinDurationCmd() tea.Cmd {
+	return tea.Tick(1200*time.Millisecond, func(_ time.Time) tea.Msg {
+		return splashMinDurationMsg{}
+	})
+}
+
+func (m model) runInitCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.initFn == nil {
+			return splashInitResult{}
+		}
+		sender, stopPresence, err := m.initFn(m.ctx)
+		return splashInitResult{
+			sender:       sender,
+			stopPresence: stopPresence,
+			err:          err,
+		}
+	}
 }
 
 type messageEventMsg storage.StoredMessage
@@ -194,9 +249,19 @@ func waitForEventCmd(ch chan storage.StoredMessage) tea.Cmd {
 }
 
 func (m model) Init() tea.Cmd {
-	cmds := []tea.Cmd{refreshTickCmd()}
+	cmds := []tea.Cmd{}
 	if m.busCh != nil {
 		cmds = append(cmds, waitForEventCmd(m.busCh))
+	}
+	if m.splash {
+		cmds = append(cmds, splashTickCmd(), splashMinDurationCmd())
+		if m.initFn != nil {
+			cmds = append(cmds, m.runInitCmd())
+		} else {
+			m.splashInitDone = true
+		}
+	} else {
+		cmds = append(cmds, refreshTickCmd())
 	}
 	return tea.Batch(cmds...)
 }
@@ -205,7 +270,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+	case splashTickMsg:
+		if m.splash {
+			m.splashSpinnerIdx = (m.splashSpinnerIdx + 1) % len(spinnerFrames)
+			return m, splashTickCmd()
+		}
+		return m, nil
+	case splashMinDurationMsg:
+		m.splashMinDone = true
+		if m.splashInitDone && m.splashErr == nil {
+			m.splash = false
+			return m, refreshTickCmd()
+		}
+		return m, nil
+	case splashInitResult:
+		m.splashInitDone = true
+		if msg.err != nil {
+			m.splashErr = msg.err
+			m.splashStatus = "Erro ao conectar"
+			return m, nil
+		}
+		m.sender = msg.sender
+		m.stopPresence = msg.stopPresence
+		m.splashStatus = "Pronto!"
+		if m.splashMinDone {
+			m.splash = false
+			return m, refreshTickCmd()
+		}
+		return m, nil
 	case refreshTick:
+		if m.splash {
+			return m, nil
+		}
 		commands := []tea.Cmd{refreshTickCmd()}
 		if !m.acceptancePollUntil.IsZero() && time.Now().Before(m.acceptancePollUntil) && !m.acceptancePollInFlight {
 			m.acceptancePollInFlight = true
@@ -351,6 +447,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.loadHistoryCmd(m.activePeerID(), nil, false)
 	case tea.MouseMsg:
+		if m.splash {
+			return m, nil
+		}
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
 			if m.panel == logsPanel {
@@ -395,7 +494,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
+			if m.stopPresence != nil {
+				m.stopPresence()
+			}
 			return m, tea.Quit
+		}
+		if m.splash {
+			switch msg.String() {
+			case "q", "esc":
+				if m.splashErr != nil {
+					if m.stopPresence != nil {
+						m.stopPresence()
+					}
+					return m, tea.Quit
+				}
+			case "enter", "space":
+				if m.splashInitDone && m.splashErr == nil {
+					m.splash = false
+					return m, refreshTickCmd()
+				}
+			}
+			return m, nil
 		}
 		if msg.String() == "ctrl+l" {
 			if m.panel == logsPanel {
@@ -868,6 +987,9 @@ func (m model) View() string {
 	if m.width < 58 || m.height < 21 {
 		return "Amplie o terminal para pelo menos 58 colunas e 21 linhas."
 	}
+	if m.splash {
+		return m.splashView()
+	}
 
 	innerWidth := m.width - 2
 	sideWidth := min(29, max(22, innerWidth/3))
@@ -1231,3 +1353,43 @@ func (m model) logsView(width, height int) []string {
 	return rows
 }
 
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+const splashLogo = "   ______      ________          __ \n" +
+	"  / ____/___  / ____/ /_  ____ _/ /_\n" +
+	" / / __/ __ \\/ /   / __ \\/ __ `/ __/\n" +
+	"/ /_/ / /_/ / /___/ / / / /_/ / /_  \n" +
+	"\\____/\\____/\\____/_/ /_/\\__,_/\\__/  "
+
+func (m model) splashView() string {
+	logo := titleStyle.Render(splashLogo)
+	tagline := mutedStyle.Render("P 2 P   C H A T")
+
+	var statusLine string
+	if m.splashErr != nil {
+		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F87171")).Bold(true)
+		statusLine = errStyle.Render("✗ "+m.splashErr.Error()) + "\n\n" + mutedStyle.Render("pressione 'q' para sair")
+	} else {
+		spinner := lipgloss.NewStyle().Foreground(accent).Bold(true).Render(spinnerFrames[m.splashSpinnerIdx])
+		statusLine = fmt.Sprintf("%s  %s", spinner, lipgloss.NewStyle().Foreground(white).Render(m.splashStatus))
+	}
+
+	var peerLine string
+	if m.localID != "" {
+		peerLine = mutedStyle.Render("Peer ID: " + ansi.Truncate(m.localID, 26, "…"))
+	}
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Center,
+		logo,
+		"",
+		tagline,
+		"",
+		"",
+		statusLine,
+		"",
+		peerLine,
+	)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+}

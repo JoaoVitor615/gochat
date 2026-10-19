@@ -8,18 +8,26 @@ import (
 )
 
 func (a *App) GoChatCommand(ctx context.Context) error {
-	stopPresence, err := a.startPresence(ctx)
-	if err != nil {
-		return err
-	}
-	defer stopPresence()
-	if a.Messenger != nil {
-		go func() {
-			if err := a.Messenger.RetryAll(ctx); err != nil && ctx.Err() == nil {
-				log.Printf("retry queued messages at startup: %v", err)
-			}
-		}()
-	}
+	var stopPresence func()
+	defer func() {
+		if stopPresence != nil {
+			stopPresence()
+		}
+	}()
 
-	return tui.Run(ctx, a.Identity.PeerID, a.DiscoveryClient, a.Store, a.Messenger, a.Bus)
+	return tui.RunWithSplash(ctx, a.Identity.PeerID, a.DiscoveryClient, a.Store, a.Bus, func(initCtx context.Context) (tui.MessageSender, func(), error) {
+		stop, err := a.startPresence(initCtx)
+		if err != nil {
+			return nil, nil, err
+		}
+		stopPresence = stop
+		if a.Messenger != nil {
+			go func() {
+				if err := a.Messenger.RetryAll(initCtx); err != nil && initCtx.Err() == nil {
+					log.Printf("retry queued messages at startup: %v", err)
+				}
+			}()
+		}
+		return a.Messenger, stop, nil
+	})
 }
