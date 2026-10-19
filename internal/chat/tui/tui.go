@@ -86,6 +86,7 @@ type model struct {
 	scrollBack             int
 	logsScroll             int
 	busCh                  chan storage.StoredMessage
+	presenceCh             chan events.PeerPresence
 	splash                 bool
 	splashSpinnerIdx       int
 	splashStatus           string
@@ -170,9 +171,12 @@ func RunWithSplash(ctx context.Context, localPeerID string, api PeerAPI, peerSto
 		return fmt.Errorf("load saved peers: %w", err)
 	}
 	var busCh chan storage.StoredMessage
+	var presenceCh chan events.PeerPresence
 	if bus != nil {
 		busCh = bus.Subscribe()
 		defer bus.Unsubscribe(busCh)
+		presenceCh = bus.SubscribePresence()
+		defer bus.UnsubscribePresence(presenceCh)
 	}
 	initial := model{
 		ctx:          ctx,
@@ -181,6 +185,7 @@ func RunWithSplash(ctx context.Context, localPeerID string, api PeerAPI, peerSto
 		localID:      localPeerID,
 		active:       -1,
 		busCh:        busCh,
+		presenceCh:   presenceCh,
 		splash:       true,
 		splashStatus: "Conectando à rede P2P...",
 		initFn:       initFn,
@@ -248,10 +253,28 @@ func waitForEventCmd(ch chan storage.StoredMessage) tea.Cmd {
 	}
 }
 
+type presenceEventMsg events.PeerPresence
+
+func waitForPresenceCmd(ch chan events.PeerPresence) tea.Cmd {
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		event, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return presenceEventMsg(event)
+	}
+}
+
 func (m model) Init() tea.Cmd {
 	cmds := []tea.Cmd{}
 	if m.busCh != nil {
 		cmds = append(cmds, waitForEventCmd(m.busCh))
+	}
+	if m.presenceCh != nil {
+		cmds = append(cmds, waitForPresenceCmd(m.presenceCh))
 	}
 	if m.splash {
 		cmds = append(cmds, splashTickCmd(), splashMinDurationCmd())
@@ -329,6 +352,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, waitForEventCmd(m.busCh)
+	case presenceEventMsg:
+		event := events.PeerPresence(msg)
+		if idx := m.peerIndex(event.PeerID); idx >= 0 {
+			if event.LastSeenAt.After(m.peers[idx].lastSeenAt) {
+				m.peers[idx].lastSeenAt = event.LastSeenAt
+			}
+		}
+		return m, waitForPresenceCmd(m.presenceCh)
 	case historyResult:
 		if msg.peerID != m.activePeerID() {
 			return m, nil
@@ -1035,14 +1066,25 @@ func (m model) sidebar(width, height int) []string {
 		if name == "" {
 			name = shortPeerID(p.id)
 		}
-		label := "  " + mutedStyle.Render("○") + " " + name
-		if m.selected == i {
-			label = selectedStyle.Render(" › ○ " + name + " ")
+		online := isPeerOnline(p.lastSeenAt)
+		var circle string
+		if online {
+			circle = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render("●")
 		} else {
-			label = peerStyle.Render(label)
+			circle = mutedStyle.Render("○")
+		}
+		var label string
+		if m.selected == i {
+			label = fmt.Sprintf("  %s %s", circle, selectedStyle.Render(" "+name+" "))
+		} else {
+			label = fmt.Sprintf("  %s %s", circle, peerStyle.Render(name))
 		}
 		rows[row] = label
-		rows[row+1] = mutedStyle.Render("    " + peerLastSeen(p.lastSeenAt))
+		if online {
+			rows[row+1] = "    " + lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render("online")
+		} else {
+			rows[row+1] = mutedStyle.Render("    " + peerLastSeen(p.lastSeenAt))
+		}
 	}
 	rows[height-2] = mutedStyle.Render("  + Adicionar [a]")
 	return rows
@@ -1100,12 +1142,23 @@ func (m model) mainArea(width, height int) []string {
 		return rows
 	}
 	p := m.peers[m.active]
-	if p.displayName != "" {
-		rows[0] = "  " + titleStyle.Render(p.displayName) + "  " + mutedStyle.Render("("+shortPeerID(p.id)+")")
+	online := isPeerOnline(p.lastSeenAt)
+	var circle string
+	if online {
+		circle = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render("●")
 	} else {
-		rows[0] = "  " + titleStyle.Render(shortPeerID(p.id))
+		circle = mutedStyle.Render("○")
 	}
-	rows[1] = "  " + mutedStyle.Render(peerLastSeen(p.lastSeenAt))
+	if p.displayName != "" {
+		rows[0] = fmt.Sprintf("  %s %s  %s", circle, titleStyle.Render(p.displayName), mutedStyle.Render("("+shortPeerID(p.id)+")"))
+	} else {
+		rows[0] = fmt.Sprintf("  %s %s", circle, titleStyle.Render(shortPeerID(p.id)))
+	}
+	if online {
+		rows[1] = "    " + lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render("online")
+	} else {
+		rows[1] = "  " + mutedStyle.Render(peerLastSeen(p.lastSeenAt))
+	}
 	messageBottom := height - 4
 	messageRows := make([]string, 0, height)
 	if m.loadingChat && len(m.messages) == 0 {
@@ -1264,6 +1317,15 @@ func peerLastSeen(lastSeenAt time.Time) string {
 		return "presença não verificada"
 	}
 	return "visto " + lastSeenAt.Local().Format("02/01 15:04")
+}
+
+const presenceOnlineThreshold = 30 * time.Second
+
+func isPeerOnline(lastSeenAt time.Time) bool {
+	if lastSeenAt.IsZero() {
+		return false
+	}
+	return time.Since(lastSeenAt) < presenceOnlineThreshold
 }
 
 func frameLine(value string, width int) string {

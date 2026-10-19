@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/JoaoVitor615/gochat/internal/chat/client"
+	"github.com/JoaoVitor615/gochat/internal/chat/events"
 	"github.com/JoaoVitor615/gochat/internal/chat/messaging"
 	"github.com/JoaoVitor615/gochat/internal/chat/p2p"
+	"github.com/JoaoVitor615/gochat/internal/chat/storage"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -36,6 +38,13 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 		if err := p2p.HandleStream(ctx, stream, a.Store, a.Identity.PeerID, a.Bus.Publish, a.Identity.PrivateKey); err != nil && ctx.Err() == nil {
 			log.Printf("handle peer message: %v", err)
 		}
+	})
+	p2p.RegisterPresenceHandler(h, func(remotePeerID string) {
+		now := time.Now().UTC()
+		if a.Bus != nil {
+			a.Bus.PublishPresence(events.PeerPresence{PeerID: remotePeerID, LastSeenAt: now})
+		}
+		_ = a.Store.SavePeer(context.Background(), storage.Peer{PeerID: remotePeerID, LastSeenAt: now})
 	})
 
 	observerAddress, observerErr := lookupObserverAddress(ctx, a.DiscoveryClient)
@@ -74,6 +83,11 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 	peerNotifications := &network.NotifyBundle{
 		ConnectedF: func(_ network.Network, connection network.Conn) {
 			remotePeerID := connection.RemotePeer().String()
+			now := time.Now().UTC()
+			if a.Bus != nil {
+				a.Bus.PublishPresence(events.PeerPresence{PeerID: remotePeerID, LastSeenAt: now})
+			}
+			_ = a.Store.SavePeer(context.Background(), storage.Peer{PeerID: remotePeerID, LastSeenAt: now})
 			go func() {
 				if err := messenger.RetryPeer(ctx, remotePeerID); err != nil && ctx.Err() == nil {
 					log.Printf("retry queued messages for peer %s: %v", remotePeerID, err)
@@ -82,6 +96,27 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 		},
 	}
 	h.Network().Notify(peerNotifications)
+
+	const presencePingInterval = 10 * time.Second
+	pingCtx, cancelPing := context.WithCancel(ctx)
+	pingDone := make(chan struct{})
+	go func() {
+		defer close(pingDone)
+		time.Sleep(500 * time.Millisecond)
+		runPresencePing(pingCtx, h, a.Store, a.Bus)
+
+		ticker := time.NewTicker(presencePingInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-pingCtx.Done():
+				return
+			case <-ticker.C:
+				runPresencePing(pingCtx, h, a.Store, a.Bus)
+			}
+		}
+	}()
 
 	heartbeatCtx, cancelHeartbeat := context.WithCancel(ctx)
 	done := make(chan struct{})
@@ -117,6 +152,8 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 	}()
 
 	return func() {
+		cancelPing()
+		<-pingDone
 		cancelHeartbeat()
 		<-done
 		h.Network().StopNotify(peerNotifications)
@@ -126,6 +163,31 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 		a.Messenger = nil
 		a.Host = nil
 	}, nil
+}
+
+func runPresencePing(ctx context.Context, h host.Host, store storage.Repository, bus *events.Bus) {
+	if ctx.Err() != nil || h == nil || store == nil {
+		return
+	}
+	peers, err := store.ListPeers(ctx)
+	if err != nil || len(peers) == 0 {
+		return
+	}
+	for _, p := range peers {
+		targetID, err := peer.Decode(p.PeerID)
+		if err != nil {
+			continue
+		}
+		go func(peerIDStr string, target peer.ID) {
+			if err := p2p.PingPeer(ctx, h, target); err == nil {
+				now := time.Now().UTC()
+				if bus != nil {
+					bus.PublishPresence(events.PeerPresence{PeerID: peerIDStr, LastSeenAt: now})
+				}
+				_ = store.SavePeer(context.Background(), storage.Peer{PeerID: peerIDStr, LastSeenAt: now})
+			}
+		}(p.PeerID, targetID)
+	}
 }
 
 func peerAddressStrings(h host.Host, observed []ma.Multiaddr) ([]string, error) {

@@ -105,3 +105,60 @@ func TestPeerLastSeen(t *testing.T) {
 	}
 }
 
+func TestIsPeerOnline(t *testing.T) {
+	if isPeerOnline(time.Time{}) {
+		t.Error("zero time should be offline")
+	}
+	if !isPeerOnline(time.Now().Add(-10 * time.Second)) {
+		t.Error("10 seconds ago should be online")
+	}
+	if !isPeerOnline(time.Now().Add(-25 * time.Second)) {
+		t.Error("25 seconds ago should be online")
+	}
+	if isPeerOnline(time.Now().Add(-35 * time.Second)) {
+		t.Error("35 seconds ago should be offline")
+	}
+	if isPeerOnline(time.Now().Add(-1 * time.Hour)) {
+		t.Error("1 hour ago should be offline")
+	}
+}
+
+func TestModel_PresenceOnlineAndOffline(t *testing.T) {
+	m := model{
+		width:   80,
+		height:  24,
+		splash:  false,
+		active:  0,
+		peers: []peer{
+			{
+				id:          "peer-1",
+				displayName: "Alice",
+				lastSeenAt:  time.Now().Add(-2 * time.Hour), // offline initially
+			},
+		},
+	}
+
+	// Offline check
+	sideOffline := strings.Join(m.sidebar(25, 20), "\n")
+	if !strings.Contains(sideOffline, "○") {
+		t.Errorf("expected offline circle ○, got:\n%s", sideOffline)
+	}
+	if !strings.Contains(sideOffline, "visto") {
+		t.Errorf("expected visto in offline sidebar, got:\n%s", sideOffline)
+	}
+
+	// Now send presence event saying Alice was seen right now
+	newM, _ := m.Update(presenceEventMsg{PeerID: "peer-1", LastSeenAt: time.Now()})
+	mod := newM.(model)
+
+	// Online check
+	sideOnline := strings.Join(mod.sidebar(25, 20), "\n")
+	if !strings.Contains(sideOnline, "●") {
+		t.Errorf("expected online circle ●, got:\n%s", sideOnline)
+	}
+	if !strings.Contains(sideOnline, "online") {
+		t.Errorf("expected online in sidebar, got:\n%s", sideOnline)
+	}
+}
+
+
