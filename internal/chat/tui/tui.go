@@ -4,6 +4,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -41,10 +42,12 @@ type MessageSender interface {
 }
 
 type peer struct {
-	id          string
-	displayName string
-	addresses   []string
-	lastSeenAt  time.Time
+	id            string
+	displayName   string
+	addresses     []string
+	addedAt       time.Time
+	lastSeenAt    time.Time
+	lastMessageAt time.Time
 }
 
 type panel uint8
@@ -191,11 +194,20 @@ func RunWithSplash(ctx context.Context, localPeerID string, api PeerAPI, peerSto
 		initFn:       initFn,
 	}
 	for _, saved := range savedPeers {
+		var lastMsgAt time.Time
+		if msgs, err := peerStore.ListMessages(ctx, saved.PeerID, nil, 1); err == nil && len(msgs) > 0 {
+			lastMsgAt = msgs[0].Envelope.CreatedAt
+		}
 		initial.peers = append(initial.peers, peer{
-			id: saved.PeerID, displayName: saved.DisplayName,
-			addresses: saved.Addresses, lastSeenAt: saved.LastSeenAt,
+			id:            saved.PeerID,
+			displayName:   saved.DisplayName,
+			addresses:     saved.Addresses,
+			addedAt:       saved.AddedAt,
+			lastSeenAt:    saved.LastSeenAt,
+			lastMessageAt: lastMsgAt,
 		})
 	}
+	initial.sortPeers()
 	p := tea.NewProgram(initial, tea.WithAltScreen(), tea.WithContext(ctx), tea.WithMouseCellMotion())
 	finalModel, err := p.Run()
 	if finalM, ok := finalModel.(model); ok && finalM.stopPresence != nil {
@@ -350,6 +362,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if stored.Envelope.CreatedAt.After(m.peers[idx].lastSeenAt) {
 				m.peers[idx].lastSeenAt = stored.Envelope.CreatedAt
 			}
+			if stored.Envelope.CreatedAt.After(m.peers[idx].lastMessageAt) {
+				m.peers[idx].lastMessageAt = stored.Envelope.CreatedAt
+			}
+			m.sortPeers()
 		}
 		return m, waitForEventCmd(m.busCh)
 	case presenceEventMsg:
@@ -401,6 +417,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.input == msg.text {
 				m.input = ""
 			}
+			if idx := m.peerIndex(msg.peerID); idx >= 0 {
+				if msg.result.Message.CreatedAt.After(m.peers[idx].lastMessageAt) {
+					m.peers[idx].lastMessageAt = msg.result.Message.CreatedAt
+				}
+				m.sortPeers()
+			}
 		}
 		if msg.result.DeliveryError != nil {
 			m.chatNotice = "Salva localmente; aguardando entrega. " + msg.result.DeliveryError.Error()
@@ -428,6 +450,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.upsertPeer(peer{
 			id: msg.peer.PeerID, addresses: msg.peer.Addresses,
+			addedAt:    time.Now().UTC(),
 			lastSeenAt: msg.lastSeenAt,
 		})
 		m.selected = m.peerIndex(msg.peer.PeerID)
@@ -458,6 +481,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.upsertPeer(peer{
 				id:         accepted.acceptance.PeerID,
 				addresses:  accepted.acceptance.Addresses,
+				addedAt:    accepted.acceptance.AcceptedAt,
 				lastSeenAt: accepted.acceptance.AcceptedAt,
 			})
 		}
@@ -996,10 +1020,18 @@ func (m *model) upsertPeer(updated peer) {
 		if updated.displayName == "" {
 			updated.displayName = m.peers[index].displayName
 		}
+		if updated.addedAt.IsZero() {
+			updated.addedAt = m.peers[index].addedAt
+		}
+		if updated.lastMessageAt.IsZero() {
+			updated.lastMessageAt = m.peers[index].lastMessageAt
+		}
 		m.peers[index] = updated
+		m.sortPeers()
 		return
 	}
 	m.peers = append(m.peers, updated)
+	m.sortPeers()
 }
 
 func (m model) peerIndex(peerID string) int {
@@ -1010,6 +1042,55 @@ func (m model) peerIndex(peerID string) int {
 	}
 	return -1
 }
+
+func (m *model) sortPeers() {
+	if len(m.peers) <= 1 {
+		return
+	}
+	activeID := ""
+	if m.active >= 0 && m.active < len(m.peers) {
+		activeID = m.peers[m.active].id
+	}
+	selectedID := ""
+	if m.selected >= 0 && m.selected < len(m.peers) {
+		selectedID = m.peers[m.selected].id
+	}
+
+	sort.SliceStable(m.peers, func(i, j int) bool {
+		pi, pj := m.peers[i], m.peers[j]
+		if !pi.lastMessageAt.IsZero() && !pj.lastMessageAt.IsZero() {
+			if !pi.lastMessageAt.Equal(pj.lastMessageAt) {
+				return pi.lastMessageAt.After(pj.lastMessageAt)
+			}
+		}
+		if !pi.lastMessageAt.IsZero() && pj.lastMessageAt.IsZero() {
+			return true
+		}
+		if pi.lastMessageAt.IsZero() && !pj.lastMessageAt.IsZero() {
+			return false
+		}
+		if !pi.addedAt.IsZero() && !pj.addedAt.IsZero() {
+			if !pi.addedAt.Equal(pj.addedAt) {
+				return pi.addedAt.After(pj.addedAt)
+			}
+		}
+		if !pi.addedAt.IsZero() && pj.addedAt.IsZero() {
+			return true
+		}
+		if pi.addedAt.IsZero() && !pj.addedAt.IsZero() {
+			return false
+		}
+		return pi.id < pj.id
+	})
+
+	if activeID != "" {
+		m.active = m.peerIndex(activeID)
+	}
+	if selectedID != "" {
+		m.selected = m.peerIndex(selectedID)
+	}
+}
+
 
 func (m model) View() string {
 	if m.width == 0 || m.height == 0 {

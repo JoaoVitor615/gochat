@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JoaoVitor615/gochat/internal/chat/message"
+	"github.com/JoaoVitor615/gochat/internal/chat/storage"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -160,5 +162,90 @@ func TestModel_PresenceOnlineAndOffline(t *testing.T) {
 		t.Errorf("expected online in sidebar, got:\n%s", sideOnline)
 	}
 }
+
+func TestModel_PeerSortingByLastMessage(t *testing.T) {
+	now := time.Now()
+	aliceTime := now.Add(-10 * time.Minute)
+	bobTime := now.Add(-5 * time.Minute)
+
+	m := model{
+		width:   80,
+		height:  24,
+		splash:  false,
+		active:  0,
+		selected: 0,
+		peers: []peer{
+			{
+				id:            "alice-id",
+				displayName:   "Alice",
+				lastMessageAt: aliceTime,
+			},
+			{
+				id:            "bob-id",
+				displayName:   "Bob",
+				lastMessageAt: bobTime,
+			},
+			{
+				id:          "charlie-id",
+				displayName: "Charlie",
+				addedAt:     now.Add(-1 * time.Hour),
+				// no messages
+			},
+		},
+	}
+
+	m.sortPeers()
+
+	// Bob should be first (most recent message at -5m)
+	// Alice should be second (at -10m)
+	// Charlie should be third (no messages)
+	if m.peers[0].id != "bob-id" {
+		t.Fatalf("expected Bob at index 0, got %s", m.peers[0].displayName)
+	}
+	if m.peers[1].id != "alice-id" {
+		t.Fatalf("expected Alice at index 1, got %s", m.peers[1].displayName)
+	}
+	if m.peers[2].id != "charlie-id" {
+		t.Fatalf("expected Charlie at index 2, got %s", m.peers[2].displayName)
+	}
+
+	// Active peer was index 0 (Alice before sort). After sort, active should track Alice to index 1!
+	if m.active != 1 || m.peers[m.active].id != "alice-id" {
+		t.Fatalf("expected active to track Alice at index 1, got %d", m.active)
+	}
+
+	// Now Charlie sends a brand new message (now)
+	charlieMsg := storage.StoredMessage{
+		ConversationPeerID: "charlie-id",
+		Envelope: message.Message{
+			ID:              "msg-charlie-1",
+			SenderPeerID:    "charlie-id",
+			RecipientPeerID: "my-id",
+			CreatedAt:       now,
+			Content:         "Hello from Charlie!",
+		},
+		Status: message.DeliveryDelivered,
+	}
+
+	newM, _ := m.Update(messageEventMsg(charlieMsg))
+	mod := newM.(model)
+
+	// Charlie should now be at the very top (index 0) like WhatsApp!
+	if mod.peers[0].id != "charlie-id" {
+		t.Fatalf("expected Charlie to move to index 0 after message, got %s", mod.peers[0].displayName)
+	}
+	if mod.peers[1].id != "bob-id" {
+		t.Fatalf("expected Bob at index 1, got %s", mod.peers[1].displayName)
+	}
+	if mod.peers[2].id != "alice-id" {
+		t.Fatalf("expected Alice at index 2, got %s", mod.peers[2].displayName)
+	}
+
+	// Active was Alice (index 1 before Charlie's message). Now Alice is at index 2!
+	if mod.active != 2 || mod.peers[mod.active].id != "alice-id" {
+		t.Fatalf("expected active to track Alice at index 2, got %d", mod.active)
+	}
+}
+
 
 
