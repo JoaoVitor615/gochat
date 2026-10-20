@@ -7,10 +7,10 @@ import (
 
 type enUS struct{}
 
-// EnUS is the English (US) bundle.
+// EnUS is the English (United States) bundle.
 var EnUS Messages = &enUS{}
 
-func (e *enUS) LanguageName() string { return "English (US)" }
+func (e *enUS) LanguageName() string { return "English" }
 func (e *enUS) LanguageTag() string  { return "en-US" }
 
 // Splash Screen
@@ -19,12 +19,12 @@ func (e *enUS) SplashConnected() string           { return "Ready!" }
 func (e *enUS) SplashError() string               { return "Connection error" }
 func (e *enUS) SplashQuitHint() string            { return "press 'q' to quit" }
 func (e *enUS) SplashContinueHint() string        { return "press enter or space to continue" }
-func (e *enUS) SplashLocalPeerID(id string) string { return "Local peer ID: " + id }
+func (e *enUS) SplashLocalPeerID(id string) string { return "Local Peer ID: " + id }
 
 // Terminal Window Constraints
 func (e *enUS) OpeningApp() string { return "Opening gochat..." }
 func (e *enUS) TerminalTooSmall(cols, rows int) string {
-	return fmt.Sprintf("Expand terminal to at least %d columns and %d rows.", cols, rows)
+	return fmt.Sprintf("Widen terminal to at least %d columns and %d rows.", cols, rows)
 }
 
 // Sidebar & Contacts
@@ -41,7 +41,7 @@ func (e *enUS) LastSeen(t time.Time) string {
 
 // Navigation Footers (Keyboard hints)
 func (e *enUS) FooterHome() string {
-	return "enter open  ·  + invite [i]  ·  logs [ctrl+l]  ·  quit [q]"
+	return "enter open  ·  + invite [i]  ·  settings [esc]  ·  logs [ctrl+l]  ·  quit [q]"
 }
 func (e *enUS) FooterChat() string {
 	return "enter send  ·  scroll history  ·  ctrl+n nickname  ·  esc back  ·  ctrl+u clear"
@@ -60,6 +60,9 @@ func (e *enUS) FooterInviteExpire() string {
 }
 func (e *enUS) FooterCancel() string {
 	return "esc cancel"
+}
+func (e *enUS) FooterSettings() string {
+	return "esc close settings  ·  enter apply language"
 }
 
 // Chat Notices & Operational Status
@@ -89,30 +92,30 @@ func (e *enUS) NoticeSavedQueue() string {
 }
 func (e *enUS) NoticePeerSavedDialFailed(err error) string {
 	if err == nil {
-		return "Peer saved; direct P2P connection failed."
+		return "Peer saved; direct P2P dial failed."
 	}
-	return "Peer saved; direct P2P connection failed: " + err.Error()
+	return "Peer saved; direct P2P dial failed: " + err.Error()
 }
 func (e *enUS) NoticeP2PConnected() string {
 	return "Direct P2P connection established."
 }
 func (e *enUS) NoticePeerNotSaved(err error) string {
 	if err == nil {
-		return "Peer added in this session, but not saved locally."
+		return "Peer added for this session, but could not be saved locally."
 	}
-	return "Peer added in this session, but not saved locally: " + err.Error()
+	return "Peer added for this session, but could not be saved locally: " + err.Error()
 }
 func (e *enUS) NoticeInviteAcceptedNotSaved(err error) string {
 	if err == nil {
-		return "Invite accepted, but contact was not saved locally."
+		return "Invite accepted, but contact could not be saved locally."
 	}
-	return "Invite accepted, but contact was not saved locally: " + err.Error()
+	return "Invite accepted, but contact could not be saved locally: " + err.Error()
 }
 func (e *enUS) NoticeInviteAcceptedDialFailed(err error) string {
 	if err == nil {
-		return "Invite accepted; direct P2P connection failed."
+		return "Invite accepted; direct P2P dial failed."
 	}
-	return "Invite accepted; direct P2P connection failed: " + err.Error()
+	return "Invite accepted; direct P2P dial failed: " + err.Error()
 }
 func (e *enUS) NoticeInviteAcceptedConnected() string {
 	return "Invite accepted; direct P2P connection established."
@@ -228,3 +231,7 @@ func (e *enUS) LogsPanelSubtitle() string {
 }
 func (e *enUS) LogsPanelEmpty() string { return "No logs recorded yet." }
 
+// Settings Panel
+func (e *enUS) SettingsPanelTitle() string       { return "SETTINGS" }
+func (e *enUS) SettingsLanguageSection() string  { return "Language / Idioma:" }
+func (e *enUS) InstructionSettings() string      { return "↑/↓ select  ·  enter apply  ·  esc close" }

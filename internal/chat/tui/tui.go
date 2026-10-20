@@ -59,6 +59,7 @@ const (
 	invitePanel
 	nicknamePanel
 	logsPanel
+	settingsPanel
 )
 
 type model struct {
@@ -72,6 +73,7 @@ type model struct {
 	selected               int
 	active                 int
 	panel                  panel
+	settingsSelected       int
 	code                   string
 	invite                 string
 	nicknameInput          string
@@ -584,6 +586,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == logsPanel {
 			return m.updateLogsPanel(msg)
 		}
+		if m.panel == settingsPanel {
+			return m.updateSettingsPanel(msg)
+		}
 		if m.panel == addPanel {
 			return m.updateAddPanel(msg)
 		}
@@ -625,8 +630,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.scrollBack = 0
 				return m, m.loadHistoryCmd(m.activePeerID(), nil, false)
 			}
-		case "esc":
-			m.active = -1
+		case "esc", "s":
+			m.panel = settingsPanel
+			m.settingsSelected = m.currentLanguageIndex()
 		case "a":
 			m.panel, m.code, m.errText = addPanel, "", ""
 		case "i":
@@ -639,6 +645,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.nicknameInput = m.peers[m.selected].displayName
 				m.errText = ""
 			}
+		}
+	}
+	return m, nil
+}
+
+func (m model) currentLanguageIndex() int {
+	cur := i18n.CurrentLanguage()
+	for i, l := range i18n.AvailableLanguages() {
+		if l.Tag == cur {
+			return i
+		}
+	}
+	return 0
+}
+
+func (m model) updateSettingsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	langs := i18n.AvailableLanguages()
+	switch msg.String() {
+	case "esc":
+		m.panel = noPanel
+	case "up", "k":
+		if m.settingsSelected > 0 {
+			m.settingsSelected--
+		}
+	case "down", "j":
+		if m.settingsSelected < len(langs)-1 {
+			m.settingsSelected++
+		}
+	case "enter", " ":
+		if m.settingsSelected >= 0 && m.settingsSelected < len(langs) {
+			i18n.SetLanguage(langs[m.settingsSelected].Tag)
 		}
 	}
 	return m, nil
@@ -1130,6 +1167,8 @@ func (m model) View() string {
 		footer = i18n.T.FooterLogs()
 	} else if m.panel == invitePanel {
 		footer = i18n.T.FooterInviteNew()
+	} else if m.panel == settingsPanel {
+		footer = i18n.T.FooterSettings()
 	} else if m.panel != noPanel {
 		footer = i18n.T.FooterCancel()
 	}
@@ -1310,7 +1349,31 @@ func (m model) dialog(width, height int) []string {
 	rows := make([]string, height)
 	boxWidth := min(76, width-4)
 	var content []string
-	if m.panel == addPanel {
+	if m.panel == settingsPanel {
+		langs := i18n.AvailableLanguages()
+		var langRows []string
+		current := i18n.CurrentLanguage()
+		for i, l := range langs {
+			radio := "( )"
+			if l.Tag == current {
+				radio = "(*)"
+			}
+			label := fmt.Sprintf("%s %s (%s)", radio, l.Name, l.Tag)
+			if m.settingsSelected == i {
+				langRows = append(langRows, selectedStyle.Render(" > "+label+" "))
+			} else {
+				langRows = append(langRows, mutedStyle.Render("   "+label))
+			}
+		}
+		content = []string{
+			titleStyle.Render(i18n.T.SettingsPanelTitle()),
+			"",
+			mutedStyle.Render(i18n.T.SettingsLanguageSection()),
+			"",
+		}
+		content = append(content, langRows...)
+		content = append(content, "", mutedStyle.Render(i18n.T.InstructionSettings()))
+	} else if m.panel == addPanel {
 		field := m.code
 		if field == "" {
 			field = "ABC123XYZ"

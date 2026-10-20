@@ -271,3 +271,68 @@ func TestModel_PeerSortingByLastMessage(t *testing.T) {
 		t.Fatalf("expected active to track Alice at index 2, got %d", mod.active)
 	}
 }
+
+
+func TestModel_SettingsPanel(t *testing.T) {
+	orig := i18n.CurrentLanguage()
+	defer i18n.SetLanguage(orig)
+	i18n.SetLanguage(i18n.LangPtBR)
+
+	m := model{
+		width:  80,
+		height: 24,
+		splash: false,
+		active: -1,
+		panel:  noPanel,
+	}
+
+	// 1. Pressing 'esc' on home screen should open settingsPanel
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	mod := newM.(model)
+	if mod.panel != settingsPanel {
+		t.Fatalf("expected settingsPanel on esc, got %v", mod.panel)
+	}
+
+	// View should render settings dialog with options
+	view := mod.View()
+	if !strings.Contains(view, "CONFIGURAÇÕES") {
+		t.Errorf("expected view to contain 'CONFIGURAÇÕES', got:\n%s", view)
+	}
+	if !strings.Contains(view, "Español") || !strings.Contains(view, "English") || !strings.Contains(view, "Português") {
+		t.Errorf("expected view to list all languages, got:\n%s", view)
+	}
+
+	// 2. Select Spanish
+	langs := i18n.AvailableLanguages()
+	esIdx := -1
+	for i, l := range langs {
+		if l.Tag == i18n.LangEsES {
+			esIdx = i
+			break
+		}
+	}
+	if esIdx < 0 {
+		t.Fatal("es-ES not found in AvailableLanguages")
+	}
+
+	mod.settingsSelected = esIdx
+	newM, _ = mod.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mod = newM.(model)
+
+	if i18n.CurrentLanguage() != i18n.LangEsES {
+		t.Fatalf("expected current language to change to es-ES, got %s", i18n.CurrentLanguage())
+	}
+
+	// Now the view should show Spanish title
+	viewEs := mod.View()
+	if !strings.Contains(viewEs, "CONFIGURACIÓN") {
+		t.Errorf("expected view to show Spanish title 'CONFIGURACIÓN', got:\n%s", viewEs)
+	}
+
+	// 3. Pressing 'esc' in settings closes the panel
+	newM, _ = mod.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	mod = newM.(model)
+	if mod.panel != noPanel {
+		t.Fatalf("expected noPanel after esc in settings, got %v", mod.panel)
+	}
+}

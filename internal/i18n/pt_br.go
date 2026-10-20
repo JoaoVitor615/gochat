@@ -41,7 +41,7 @@ func (p *ptBR) LastSeen(t time.Time) string {
 
 // Navigation Footers (Keyboard hints)
 func (p *ptBR) FooterHome() string {
-	return "enter abrir  ·  + convite [i]  ·  logs [ctrl+l]  ·  sair [q]"
+	return "enter abrir  ·  + convite [i]  ·  configurações [esc]  ·  logs [ctrl+l]  ·  sair [q]"
 }
 func (p *ptBR) FooterChat() string {
 	return "enter enviar  ·  scroll histórico  ·  ctrl+n apelido  ·  esc voltar  ·  ctrl+u limpar"
@@ -60,6 +60,9 @@ func (p *ptBR) FooterInviteExpire() string {
 }
 func (p *ptBR) FooterCancel() string {
 	return "esc cancelar"
+}
+func (p *ptBR) FooterSettings() string {
+	return "esc fechar configurações  ·  enter aplicar idioma"
 }
 
 // Chat Notices & Operational Status
@@ -228,3 +231,7 @@ func (p *ptBR) LogsPanelSubtitle() string {
 }
 func (p *ptBR) LogsPanelEmpty() string { return "Nenhum log registrado ainda." }
 
+// Settings Panel
+func (p *ptBR) SettingsPanelTitle() string       { return "CONFIGURAÇÕES" }
+func (p *ptBR) SettingsLanguageSection() string  { return "Idioma / Language:" }
+func (p *ptBR) InstructionSettings() string      { return "↑/↓ navegar  ·  enter aplicar  ·  esc fechar" }

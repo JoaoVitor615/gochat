@@ -41,7 +41,7 @@ func (e *esES) LastSeen(t time.Time) string {
 
 // Navigation Footers (Keyboard hints)
 func (e *esES) FooterHome() string {
-	return "enter abrir  ·  + invitar [i]  ·  logs [ctrl+l]  ·  salir [q]"
+	return "enter abrir  ·  + invitar [i]  ·  configuración [esc]  ·  logs [ctrl+l]  ·  salir [q]"
 }
 func (e *esES) FooterChat() string {
 	return "enter enviar  ·  desplazar historial  ·  ctrl+n apodo  ·  esc volver  ·  ctrl+u borrar"
@@ -60,6 +60,9 @@ func (e *esES) FooterInviteExpire() string {
 }
 func (e *esES) FooterCancel() string {
 	return "esc cancelar"
+}
+func (e *esES) FooterSettings() string {
+	return "esc cerrar configuración  ·  enter aplicar idioma"
 }
 
 // Chat Notices & Operational Status
@@ -224,6 +227,11 @@ func (e *esES) InstructionNickname() string {
 // Logs Panel
 func (e *esES) LogsPanelTitle() string { return "REGISTROS DEL SISTEMA" }
 func (e *esES) LogsPanelSubtitle() string {
-	return "Registro de eventos y conexiones (ESC para cerrar)"
+	return "Registro de eventos e conexiones (ESC para cerrar)"
 }
 func (e *esES) LogsPanelEmpty() string { return "No hay registros hasta el momento." }
+
+// Settings Panel
+func (e *esES) SettingsPanelTitle() string       { return "CONFIGURACIÓN" }
+func (e *esES) SettingsLanguageSection() string  { return "Idioma / Language:" }
+func (e *esES) InstructionSettings() string      { return "↑/↓ navegar  ·  enter aplicar  ·  esc cerrar" }

@@ -38,6 +38,7 @@ type Messages interface {
 	FooterInviteNew() string
 	FooterInviteExpire() string
 	FooterCancel() string
+	FooterSettings() string
 
 	// Chat Notices & Operational Status
 	NoticeDeliveredAck() string
@@ -99,4 +100,9 @@ type Messages interface {
 	LogsPanelTitle() string
 	LogsPanelSubtitle() string
 	LogsPanelEmpty() string
+
+	// Settings Panel
+	SettingsPanelTitle() string
+	SettingsLanguageSection() string
+	InstructionSettings() string
 }

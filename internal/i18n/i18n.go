@@ -18,6 +18,21 @@ const (
 	LangEsES Language = "es-ES"
 )
 
+// LanguageOption represents a selectable language in the settings menu.
+type LanguageOption struct {
+	Tag  Language
+	Name string
+}
+
+// AvailableLanguages returns all supported languages for user selection.
+func AvailableLanguages() []LanguageOption {
+	return []LanguageOption{
+		{Tag: LangPtBR, Name: PtBR.LanguageName()},
+		{Tag: LangEnUS, Name: EnUS.LanguageName()},
+		{Tag: LangEsES, Name: EsES.LanguageName()},
+	}
+}
+
 var (
 	mu          sync.RWMutex
 	currentLang = LangEnUS
