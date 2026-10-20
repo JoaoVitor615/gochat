@@ -14,6 +14,8 @@ const (
 	LangEnUS Language = "en-US"
 	// LangPtBR represents Portuguese (Brazil).
 	LangPtBR Language = "pt-BR"
+	// LangEsES represents Spanish.
+	LangEsES Language = "es-ES"
 )
 
 var (
@@ -40,10 +42,14 @@ func SetLanguage(lang Language) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	switch normalizeLangString(string(lang)) {
-	case "pt", "pt-br", "pt_br":
+	norm := normalizeLangString(string(lang))
+	switch {
+	case strings.HasPrefix(norm, "pt"):
 		currentLang = LangPtBR
 		T = PtBR
+	case strings.HasPrefix(norm, "es"):
+		currentLang = LangEsES
+		T = EsES
 	default:
 		currentLang = LangEnUS
 		T = EnUS
@@ -94,6 +100,9 @@ func parseCandidate(raw string) Language {
 
 	if strings.HasPrefix(trimmed, "pt") {
 		return LangPtBR
+	}
+	if strings.HasPrefix(trimmed, "es") {
+		return LangEsES
 	}
 	if strings.HasPrefix(trimmed, "en") {
 		return LangEnUS

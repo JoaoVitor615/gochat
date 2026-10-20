@@ -107,6 +107,16 @@ func TestPeerLastSeen(t *testing.T) {
 		t.Errorf("pt-BR got %q, want %q", got, expectedPt)
 	}
 
+	// Test es-ES
+	i18n.SetLanguage(i18n.LangEsES)
+	if got := peerLastSeen(time.Time{}); got != "presencia no verificada" {
+		t.Errorf("es-ES got %q, want 'presencia no verificada'", got)
+	}
+	expectedEs := "visto 18/10 14:30"
+	if got := peerLastSeen(sampleTime); got != expectedEs {
+		t.Errorf("es-ES got %q, want %q", got, expectedEs)
+	}
+
 	// Test en-US
 	i18n.SetLanguage(i18n.LangEnUS)
 	if got := peerLastSeen(time.Time{}); got != "presence unverified" {
@@ -261,6 +271,3 @@ func TestModel_PeerSortingByLastMessage(t *testing.T) {
 		t.Fatalf("expected active to track Alice at index 2, got %d", mod.active)
 	}
 }
-
-
-
