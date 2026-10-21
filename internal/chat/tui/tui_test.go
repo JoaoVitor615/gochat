@@ -448,3 +448,132 @@ func TestModel_SettingsCryptographicErasure(t *testing.T) {
 		t.Errorf("expected chatNotice to indicate success, got %q", wipedMod.chatNotice)
 	}
 }
+
+func TestModel_UnreadBadgeLifecycle(t *testing.T) {
+	orig := i18n.CurrentLanguage()
+	defer i18n.SetLanguage(orig)
+	i18n.SetLanguage(i18n.LangPtBR)
+
+	mockStore := &mockWipeStore{}
+	m := model{
+		width:     80,
+		height:    24,
+		splash:    false,
+		active:    -1,
+		localID:   "local-peer",
+		peerStore: mockStore,
+		peers: []peer{
+			{id: "peer-joao", displayName: "João"},
+			{id: "peer-maria", displayName: "Maria"},
+		},
+		panel: noPanel,
+	}
+
+	// 1. Initial state: no unread messages
+	view := m.View()
+	if !strings.Contains(view, "João") {
+		t.Fatalf("expected view to contain João")
+	}
+	if strings.Contains(view, "(1)") || strings.Contains(view, "(2)") {
+		t.Errorf("expected no unread badge initially, got:\n%s", view)
+	}
+
+	// 2. Incoming message from João while no chat is open -> unreadCount becomes 1
+	msg1 := storage.StoredMessage{
+		ConversationPeerID: "peer-joao",
+		Envelope: message.Message{
+			ID:           "msg-1",
+			SenderPeerID: "peer-joao",
+			Content:      "Olá, tudo bem?",
+			CreatedAt:    time.Now().UTC(),
+		},
+	}
+	newM, _ := m.Update(messageEventMsg(msg1))
+	m = newM.(model)
+
+	joaoIdx := m.peerIndex("peer-joao")
+	if joaoIdx < 0 || m.peers[joaoIdx].unreadCount != 1 {
+		t.Fatalf("expected João unreadCount to be 1, got %v", m.peers[joaoIdx].unreadCount)
+	}
+	view = m.View()
+	if !strings.Contains(view, "(1)") {
+		t.Errorf("expected view to contain '(1)' for João, got:\n%s", view)
+	}
+
+	// 3. Second incoming message from João -> unreadCount becomes 2
+	msg2 := storage.StoredMessage{
+		ConversationPeerID: "peer-joao",
+		Envelope: message.Message{
+			ID:           "msg-2",
+			SenderPeerID: "peer-joao",
+			Content:      "Viu minha mensagem anterior?",
+			CreatedAt:    time.Now().UTC().Add(time.Second),
+		},
+	}
+	newM, _ = m.Update(messageEventMsg(msg2))
+	m = newM.(model)
+
+	joaoIdx = m.peerIndex("peer-joao")
+	if m.peers[joaoIdx].unreadCount != 2 {
+		t.Fatalf("expected João unreadCount to be 2, got %v", m.peers[joaoIdx].unreadCount)
+	}
+	view = m.View()
+	if !strings.Contains(view, "(2)") {
+		t.Errorf("expected view to contain '(2)' for João, got:\n%s", view)
+	}
+
+	// 4. User selects João and presses Enter to open conversation -> unreadCount resets to 0
+	m.selected = joaoIdx
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(model)
+
+	if m.active != joaoIdx {
+		t.Fatalf("expected active conversation to be João (%d), got %d", joaoIdx, m.active)
+	}
+	if m.peers[joaoIdx].unreadCount != 0 {
+		t.Errorf("expected unreadCount to reset to 0 upon opening chat, got %d", m.peers[joaoIdx].unreadCount)
+	}
+	view = m.View()
+	if strings.Contains(view, "(2)") || strings.Contains(view, "(1)") {
+		t.Errorf("expected unread badge to disappear after opening conversation, got:\n%s", view)
+	}
+
+	// 5. Incoming message from João while chat is ALREADY open -> unreadCount stays 0
+	msg3 := storage.StoredMessage{
+		ConversationPeerID: "peer-joao",
+		Envelope: message.Message{
+			ID:           "msg-3",
+			SenderPeerID: "peer-joao",
+			Content:      "Mensagem com chat aberto",
+			CreatedAt:    time.Now().UTC().Add(2 * time.Second),
+		},
+	}
+	newM, _ = m.Update(messageEventMsg(msg3))
+	m = newM.(model)
+
+	if m.peers[joaoIdx].unreadCount != 0 {
+		t.Errorf("expected unreadCount to remain 0 while chat is open, got %d", m.peers[joaoIdx].unreadCount)
+	}
+
+	// 6. Incoming message from Maria while João is active -> Maria's unreadCount becomes 1
+	msgMaria := storage.StoredMessage{
+		ConversationPeerID: "peer-maria",
+		Envelope: message.Message{
+			ID:           "msg-4",
+			SenderPeerID: "peer-maria",
+			Content:      "Oi do outro contato",
+			CreatedAt:    time.Now().UTC().Add(3 * time.Second),
+		},
+	}
+	newM, _ = m.Update(messageEventMsg(msgMaria))
+	m = newM.(model)
+
+	mariaIdx := m.peerIndex("peer-maria")
+	if m.peers[mariaIdx].unreadCount != 1 {
+		t.Errorf("expected Maria unreadCount to be 1, got %d", m.peers[mariaIdx].unreadCount)
+	}
+	view = m.View()
+	if !strings.Contains(view, "(1)") {
+		t.Errorf("expected view to show badge for Maria, got:\n%s", view)
+	}
+}

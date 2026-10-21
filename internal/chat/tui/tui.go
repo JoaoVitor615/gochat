@@ -50,6 +50,7 @@ type peer struct {
 	addedAt       time.Time
 	lastSeenAt    time.Time
 	lastMessageAt time.Time
+	unreadCount   int
 }
 
 type panel uint8
@@ -370,6 +371,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if stored.Envelope.CreatedAt.After(m.peers[idx].lastMessageAt) {
 				m.peers[idx].lastMessageAt = stored.Envelope.CreatedAt
 			}
+			if stored.Envelope.SenderPeerID != m.localID {
+				if stored.ConversationPeerID != m.activePeerID() {
+					m.peers[idx].unreadCount++
+				}
+			}
 			m.sortPeers()
 		}
 		return m, waitForEventCmd(m.busCh)
@@ -460,6 +466,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 		m.selected = m.peerIndex(msg.peer.PeerID)
 		m.active = m.selected
+		if m.active >= 0 && m.active < len(m.peers) {
+			m.peers[m.active].unreadCount = 0
+		}
 		if msg.persistenceErr != nil {
 			m.errText = i18n.T.NoticePeerNotSaved(msg.persistenceErr)
 			return m, nil
@@ -493,6 +502,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		accepted := msg.peers[len(msg.peers)-1]
 		m.selected = m.peerIndex(accepted.acceptance.PeerID)
 		m.active = m.selected
+		if m.active >= 0 && m.active < len(m.peers) {
+			m.peers[m.active].unreadCount = 0
+		}
 		m.messages = nil
 		m.hasOlder = false
 		m.scrollBack = 0
@@ -625,6 +637,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if m.selected >= 0 && m.selected < len(m.peers) {
 				m.active = m.selected
+				m.peers[m.active].unreadCount = 0
 				m.messages = nil
 				m.hasOlder = false
 				m.loadingChat = true
@@ -1110,6 +1123,9 @@ func (m *model) upsertPeer(updated peer) {
 		if updated.lastMessageAt.IsZero() {
 			updated.lastMessageAt = m.peers[index].lastMessageAt
 		}
+		if updated.unreadCount == 0 && m.peers[index].unreadCount > 0 {
+			updated.unreadCount = m.peers[index].unreadCount
+		}
 		m.peers[index] = updated
 		m.sortPeers()
 		return
@@ -1258,11 +1274,15 @@ func (m model) sidebar(width, height int) []string {
 		} else {
 			circle = mutedStyle.Render("○")
 		}
+		unreadBadge := ""
+		if p.unreadCount > 0 {
+			unreadBadge = " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Bold(true).Render(fmt.Sprintf("(%d)", p.unreadCount))
+		}
 		var label string
 		if m.selected == i {
-			label = fmt.Sprintf("  %s %s", circle, selectedStyle.Render(" "+name+" "))
+			label = fmt.Sprintf("  %s %s%s", circle, selectedStyle.Render(" "+name+" "), unreadBadge)
 		} else {
-			label = fmt.Sprintf("  %s %s", circle, peerStyle.Render(name))
+			label = fmt.Sprintf("  %s %s%s", circle, peerStyle.Render(name), unreadBadge)
 		}
 		rows[row] = label
 		if online {
