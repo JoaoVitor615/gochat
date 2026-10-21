@@ -62,7 +62,7 @@ func (e *enUS) FooterCancel() string {
 	return "esc cancel"
 }
 func (e *enUS) FooterSettings() string {
-	return "esc close settings  ·  enter apply language"
+	return "esc close settings  ·  enter apply"
 }
 
 // Chat Notices & Operational Status
@@ -137,6 +137,15 @@ func (e *enUS) NoticeNicknameUpdated() string {
 }
 func (e *enUS) NoticeNicknameRemoved() string {
 	return "Nickname removed."
+}
+func (e *enUS) NoticeWipeSuccess() string {
+	return "All local data was securely wiped with AES-256 and the database was reset."
+}
+func (e *enUS) NoticeWipeError(err error) string {
+	if err == nil {
+		return "Failed to perform cryptographic erasure."
+	}
+	return "Failed to perform cryptographic erasure: " + err.Error()
 }
 
 // Message Bubbles & Chat
@@ -234,4 +243,13 @@ func (e *enUS) LogsPanelEmpty() string { return "No logs recorded yet." }
 // Settings Panel
 func (e *enUS) SettingsPanelTitle() string       { return "SETTINGS" }
 func (e *enUS) SettingsLanguageSection() string  { return "Language / Idioma:" }
-func (e *enUS) InstructionSettings() string      { return "↑/↓ select  ·  enter apply  ·  esc close" }
+func (e *enUS) SettingsDangerSection() string    { return "Danger Zone:" }
+func (e *enUS) SettingsWipeOption() string       { return "⚠️  Wipe all messages and contacts" }
+func (e *enUS) SettingsWipeConfirmTitle() string { return "CRYPTOGRAPHIC ERASURE (AES-256)" }
+func (e *enUS) SettingsWipeWarning() string {
+	return "IRREVERSIBLE ACTION: All data (messages, history, and contacts) will be overwritten with AES-256 encryption and the database file will be deleted from the machine. Data cannot be recovered."
+}
+func (e *enUS) SettingsWipePrompt() string {
+	return "Press 'y' to confirm or 'n'/ESC to cancel"
+}
+func (e *enUS) InstructionSettings() string { return "↑/↓ select  ·  enter apply  ·  esc close" }

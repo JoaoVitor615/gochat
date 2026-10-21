@@ -58,6 +58,8 @@ type Messages interface {
 	NoticeEndOfHistory() string
 	NoticeNicknameUpdated() string
 	NoticeNicknameRemoved() string
+	NoticeWipeSuccess() string
+	NoticeWipeError(err error) string
 
 	// Message Bubbles & Chat
 	StatusQueued() string
@@ -104,5 +106,10 @@ type Messages interface {
 	// Settings Panel
 	SettingsPanelTitle() string
 	SettingsLanguageSection() string
+	SettingsDangerSection() string
+	SettingsWipeOption() string
+	SettingsWipeConfirmTitle() string
+	SettingsWipeWarning() string
+	SettingsWipePrompt() string
 	InstructionSettings() string
 }

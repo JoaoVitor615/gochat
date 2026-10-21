@@ -62,7 +62,7 @@ func (e *esES) FooterCancel() string {
 	return "esc cancelar"
 }
 func (e *esES) FooterSettings() string {
-	return "esc cerrar configuración  ·  enter aplicar idioma"
+	return "esc cerrar configuración  ·  enter aplicar"
 }
 
 // Chat Notices & Operational Status
@@ -130,13 +130,22 @@ func (e *esES) NoticeLoadingOlder() string {
 	return "Cargando mensajes anteriores..."
 }
 func (e *esES) NoticeEndOfHistory() string {
-	return "Inicio del historial de mensajes"
+	return "Inicio del historial de mensagens"
 }
 func (e *esES) NoticeNicknameUpdated() string {
 	return "Apodo actualizado."
 }
 func (e *esES) NoticeNicknameRemoved() string {
 	return "Apodo eliminado."
+}
+func (e *esES) NoticeWipeSuccess() string {
+	return "Todos los datos locales fueron destruidos con éxito (AES-256) y la base de datos fue reiniciada."
+}
+func (e *esES) NoticeWipeError(err error) string {
+	if err == nil {
+		return "Error al ejecutar destrucción criptográfica."
+	}
+	return "Error al ejecutar destrucción criptográfica: " + err.Error()
 }
 
 // Message Bubbles & Chat
@@ -234,4 +243,13 @@ func (e *esES) LogsPanelEmpty() string { return "No hay registros hasta el momen
 // Settings Panel
 func (e *esES) SettingsPanelTitle() string       { return "CONFIGURACIÓN" }
 func (e *esES) SettingsLanguageSection() string  { return "Idioma / Language:" }
-func (e *esES) InstructionSettings() string      { return "↑/↓ navegar  ·  enter aplicar  ·  esc cerrar" }
+func (e *esES) SettingsDangerSection() string    { return "Zona de Peligro:" }
+func (e *esES) SettingsWipeOption() string       { return "⚠️  Borrar todos los mensajes y contactos" }
+func (e *esES) SettingsWipeConfirmTitle() string { return "DESTRUCCIÓN CRIPTOGRÁFICA (AES-256)" }
+func (e *esES) SettingsWipeWarning() string {
+	return "ACCIÓN IRREVERSIBLE: Todos los datos (mensajes, historial y contactos) se sobrescribirán con cifrado AES-256 y la base de datos se eliminará del equipo. No se podrá recuperar ningún dato."
+}
+func (e *esES) SettingsWipePrompt() string {
+	return "Presione 'y' para confirmar o 'n'/ESC para cancelar"
+}
+func (e *esES) InstructionSettings() string { return "↑/↓ navegar  ·  enter aplicar  ·  esc cerrar" }

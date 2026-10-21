@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -334,5 +335,104 @@ func TestModel_SettingsPanel(t *testing.T) {
 	mod = newM.(model)
 	if mod.panel != noPanel {
 		t.Fatalf("expected noPanel after esc in settings, got %v", mod.panel)
+	}
+}
+
+
+type mockWipeStore struct {
+	wiped bool
+}
+
+func (m *mockWipeStore) ListPeers(ctx context.Context) ([]storage.Peer, error) { return nil, nil }
+func (m *mockWipeStore) SavePeer(ctx context.Context, p storage.Peer) error     { return nil }
+func (m *mockWipeStore) SetPeerDisplayName(ctx context.Context, id, name string) error {
+	return nil
+}
+func (m *mockWipeStore) ListMessages(ctx context.Context, peerID string, before *message.Message, limit int) ([]storage.StoredMessage, error) {
+	return nil, nil
+}
+func (m *mockWipeStore) CryptographicErasure() error {
+	m.wiped = true
+	return nil
+}
+
+func TestModel_SettingsCryptographicErasure(t *testing.T) {
+	orig := i18n.CurrentLanguage()
+	defer i18n.SetLanguage(orig)
+	i18n.SetLanguage(i18n.LangPtBR)
+
+	mockStore := &mockWipeStore{}
+	m := model{
+		width:     80,
+		height:    24,
+		splash:    false,
+		active:    0,
+		peerStore: mockStore,
+		peers: []peer{
+			{id: "peer-1", displayName: "Alice"},
+		},
+		messages: []storage.StoredMessage{
+			{ConversationPeerID: "peer-1"},
+		},
+		panel: settingsPanel,
+	}
+
+	langs := i18n.AvailableLanguages()
+	wipeIdx := len(langs)
+
+	// 1. Navigate to Wipe option (index len(langs))
+	m.settingsSelected = wipeIdx
+	view := m.View()
+	if !strings.Contains(view, "Apagar todas as mensagens") {
+		t.Errorf("expected view to contain wipe option, got:\n%s", view)
+	}
+
+	// 2. Press Enter on Wipe option -> should enter confirmation mode
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mod := newM.(model)
+	if !mod.settingsConfirmWipe {
+		t.Fatal("expected settingsConfirmWipe to be true")
+	}
+
+	confirmView := mod.View()
+	if !strings.Contains(confirmView, "IRREVERSÍVEL") {
+		t.Errorf("expected confirmation view to warn about IRREVERSÍVEL, got:\n%s", confirmView)
+	}
+	if !strings.Contains(confirmView, "AES-256") {
+		t.Errorf("expected confirmation view to mention AES-256, got:\n%s", confirmView)
+	}
+
+	// 3. Test Cancel with 'n'
+	cancelM, _ := mod.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	cancelMod := cancelM.(model)
+	if cancelMod.settingsConfirmWipe {
+		t.Error("expected settingsConfirmWipe to be false after 'n'")
+	}
+	if mockStore.wiped {
+		t.Error("expected store NOT to be wiped after cancel")
+	}
+
+	// 4. Enter confirmation mode again and confirm with 'y'
+	mod.settingsConfirmWipe = true
+	wipeM, _ := mod.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	wipedMod := wipeM.(model)
+
+	if !mockStore.wiped {
+		t.Error("expected mockStore to be wiped after 'y'")
+	}
+	if len(wipedMod.peers) != 0 {
+		t.Errorf("expected peers to be empty after wipe, got %d", len(wipedMod.peers))
+	}
+	if len(wipedMod.messages) != 0 {
+		t.Errorf("expected messages to be empty after wipe, got %d", len(wipedMod.messages))
+	}
+	if wipedMod.active != -1 {
+		t.Errorf("expected active to be -1, got %d", wipedMod.active)
+	}
+	if wipedMod.panel != noPanel {
+		t.Errorf("expected settings panel to close after wipe, got %v", wipedMod.panel)
+	}
+	if !strings.Contains(wipedMod.chatNotice, "sucesso") {
+		t.Errorf("expected chatNotice to indicate success, got %q", wipedMod.chatNotice)
 	}
 }

@@ -34,6 +34,7 @@ type PeerStore interface {
 	SavePeer(context.Context, storage.Peer) error
 	SetPeerDisplayName(context.Context, string, string) error
 	ListMessages(context.Context, string, *message.Message, int) ([]storage.StoredMessage, error)
+	CryptographicErasure() error
 }
 
 type MessageSender interface {
@@ -74,6 +75,7 @@ type model struct {
 	active                 int
 	panel                  panel
 	settingsSelected       int
+	settingsConfirmWipe    bool
 	code                   string
 	invite                 string
 	nicknameInput          string
@@ -633,6 +635,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc", "s":
 			m.panel = settingsPanel
 			m.settingsSelected = m.currentLanguageIndex()
+			m.settingsConfirmWipe = false
 		case "a":
 			m.panel, m.code, m.errText = addPanel, "", ""
 		case "i":
@@ -661,23 +664,66 @@ func (m model) currentLanguageIndex() int {
 }
 
 func (m model) updateSettingsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.settingsConfirmWipe {
+		switch msg.String() {
+		case "y", "Y", "s", "S":
+			return m.performCryptographicErasure()
+		case "n", "N", "esc":
+			m.settingsConfirmWipe = false
+		}
+		return m, nil
+	}
+
 	langs := i18n.AvailableLanguages()
+	totalOptions := len(langs) + 1
+
 	switch msg.String() {
 	case "esc":
 		m.panel = noPanel
+		m.settingsConfirmWipe = false
 	case "up", "k":
 		if m.settingsSelected > 0 {
 			m.settingsSelected--
 		}
 	case "down", "j":
-		if m.settingsSelected < len(langs)-1 {
+		if m.settingsSelected < totalOptions-1 {
 			m.settingsSelected++
 		}
 	case "enter", " ":
 		if m.settingsSelected >= 0 && m.settingsSelected < len(langs) {
 			i18n.SetLanguage(langs[m.settingsSelected].Tag)
+		} else if m.settingsSelected == len(langs) {
+			m.settingsConfirmWipe = true
 		}
 	}
+	return m, nil
+}
+
+func (m model) performCryptographicErasure() (model, tea.Cmd) {
+	if m.peerStore != nil {
+		if err := m.peerStore.CryptographicErasure(); err != nil {
+			m.chatNotice = i18n.T.NoticeWipeError(err)
+			m.settingsConfirmWipe = false
+			return m, nil
+		}
+		newStore, err := storage.OpenDefault()
+		if err == nil {
+			m.peerStore = newStore
+		}
+	}
+
+	m.peers = nil
+	m.messages = nil
+	m.active = -1
+	m.selected = 0
+	m.code = ""
+	m.invite = ""
+	m.input = ""
+	m.scrollBack = 0
+	m.chatNotice = i18n.T.NoticeWipeSuccess()
+	m.panel = noPanel
+	m.settingsConfirmWipe = false
+
 	return m, nil
 }
 
@@ -1350,29 +1396,59 @@ func (m model) dialog(width, height int) []string {
 	boxWidth := min(76, width-4)
 	var content []string
 	if m.panel == settingsPanel {
-		langs := i18n.AvailableLanguages()
-		var langRows []string
-		current := i18n.CurrentLanguage()
-		for i, l := range langs {
-			radio := "( )"
-			if l.Tag == current {
-				radio = "(*)"
+		if m.settingsConfirmWipe {
+			warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F87171")).Bold(true)
+			bodyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FCA5A5")).Width(boxWidth - 6)
+			content = []string{
+				warnStyle.Render(i18n.T.SettingsWipeConfirmTitle()),
+				"",
+				bodyStyle.Render(i18n.T.SettingsWipeWarning()),
+				"",
+				mutedStyle.Render(i18n.T.SettingsWipePrompt()),
 			}
-			label := fmt.Sprintf("%s %s (%s)", radio, l.Name, l.Tag)
-			if m.settingsSelected == i {
-				langRows = append(langRows, selectedStyle.Render(" > "+label+" "))
+		} else {
+			langs := i18n.AvailableLanguages()
+			var langRows []string
+			current := i18n.CurrentLanguage()
+			for i, l := range langs {
+				radio := "( )"
+				if l.Tag == current {
+					radio = "(*)"
+				}
+				label := fmt.Sprintf("%s %s (%s)", radio, l.Name, l.Tag)
+				if m.settingsSelected == i {
+					langRows = append(langRows, selectedStyle.Render(" > "+label+" "))
+				} else {
+					langRows = append(langRows, mutedStyle.Render("   "+label))
+				}
+			}
+
+			var wipeRow string
+			wipeLabel := i18n.T.SettingsWipeOption()
+			if m.settingsSelected == len(langs) {
+				dangerSelectedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#DC2626"))
+				wipeRow = dangerSelectedStyle.Render(" > " + wipeLabel + " ")
 			} else {
-				langRows = append(langRows, mutedStyle.Render("   "+label))
+				dangerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F87171"))
+				wipeRow = dangerStyle.Render("   " + wipeLabel)
 			}
+
+			content = []string{
+				titleStyle.Render(i18n.T.SettingsPanelTitle()),
+				"",
+				mutedStyle.Render(i18n.T.SettingsLanguageSection()),
+				"",
+			}
+			content = append(content, langRows...)
+			content = append(content,
+				"",
+				mutedStyle.Render(i18n.T.SettingsDangerSection()),
+				"",
+				wipeRow,
+				"",
+				mutedStyle.Render(i18n.T.InstructionSettings()),
+			)
 		}
-		content = []string{
-			titleStyle.Render(i18n.T.SettingsPanelTitle()),
-			"",
-			mutedStyle.Render(i18n.T.SettingsLanguageSection()),
-			"",
-		}
-		content = append(content, langRows...)
-		content = append(content, "", mutedStyle.Render(i18n.T.InstructionSettings()))
 	} else if m.panel == addPanel {
 		field := m.code
 		if field == "" {

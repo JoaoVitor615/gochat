@@ -62,7 +62,7 @@ func (p *ptBR) FooterCancel() string {
 	return "esc cancelar"
 }
 func (p *ptBR) FooterSettings() string {
-	return "esc fechar configurações  ·  enter aplicar idioma"
+	return "esc fechar configurações  ·  enter aplicar"
 }
 
 // Chat Notices & Operational Status
@@ -137,6 +137,15 @@ func (p *ptBR) NoticeNicknameUpdated() string {
 }
 func (p *ptBR) NoticeNicknameRemoved() string {
 	return "Apelido removido."
+}
+func (p *ptBR) NoticeWipeSuccess() string {
+	return "Todos os dados locais foram destruídos com sucesso (AES-256) e o banco foi reiniciado."
+}
+func (p *ptBR) NoticeWipeError(err error) string {
+	if err == nil {
+		return "Falha ao executar destruição criptográfica."
+	}
+	return "Falha ao executar destruição criptográfica: " + err.Error()
 }
 
 // Message Bubbles & Chat
@@ -234,4 +243,13 @@ func (p *ptBR) LogsPanelEmpty() string { return "Nenhum log registrado ainda." }
 // Settings Panel
 func (p *ptBR) SettingsPanelTitle() string       { return "CONFIGURAÇÕES" }
 func (p *ptBR) SettingsLanguageSection() string  { return "Idioma / Language:" }
-func (p *ptBR) InstructionSettings() string      { return "↑/↓ navegar  ·  enter aplicar  ·  esc fechar" }
+func (p *ptBR) SettingsDangerSection() string    { return "Área de Perigo:" }
+func (p *ptBR) SettingsWipeOption() string       { return "⚠️  Apagar todas as mensagens e contatos" }
+func (p *ptBR) SettingsWipeConfirmTitle() string { return "DESTRUIÇÃO CRIPTOGRÁFICA (AES-256)" }
+func (p *ptBR) SettingsWipeWarning() string {
+	return "AÇÃO IRREVERSÍVEL: Todos os dados (mensagens, histórico e contatos) serão sobrescritos com criptografia AES-256 e o banco de dados será apagado da máquina. Não será possível recuperar nenhum dado."
+}
+func (p *ptBR) SettingsWipePrompt() string {
+	return "Pressione 'y' para confirmar ou 'n'/ESC para cancelar"
+}
+func (p *ptBR) InstructionSettings() string { return "↑/↓ navegar  ·  enter aplicar  ·  esc fechar" }
