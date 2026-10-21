@@ -40,6 +40,7 @@ type OutboxEntry struct {
 // Repository defines persistence operations used by chat services.
 type Repository interface {
 	Close() error
+	CryptographicErasure() error
 	SavePeer(context.Context, Peer) error
 	SetPeerDisplayName(context.Context, string, string) error
 	GetPeer(context.Context, string) (Peer, error)
