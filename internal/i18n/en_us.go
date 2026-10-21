@@ -244,7 +244,7 @@ func (e *enUS) LogsPanelEmpty() string { return "No logs recorded yet." }
 func (e *enUS) SettingsPanelTitle() string       { return "SETTINGS" }
 func (e *enUS) SettingsLanguageSection() string  { return "Language / Idioma:" }
 func (e *enUS) SettingsDangerSection() string    { return "Danger Zone:" }
-func (e *enUS) SettingsWipeOption() string       { return "⚠️  Wipe all messages and contacts" }
+func (e *enUS) SettingsWipeOption() string       { return "⚠  Wipe all messages and contacts" }
 func (e *enUS) SettingsWipeConfirmTitle() string { return "CRYPTOGRAPHIC ERASURE (AES-256)" }
 func (e *enUS) SettingsWipeWarning() string {
 	return "IRREVERSIBLE ACTION: All data (messages, history, and contacts) will be overwritten with AES-256 encryption and the database file will be deleted from the machine. Data cannot be recovered."

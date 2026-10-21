@@ -1192,6 +1192,24 @@ func (m model) View() string {
 	mainWidth := innerWidth - sideWidth - 1
 	bodyHeight := m.height - 6
 
+	if m.panel == settingsPanel {
+		var rows []string
+		rows = append(rows, borderStyle.Render("┌─ gochat "+strings.Repeat("─", m.width-11)+"┐"))
+		rows = append(rows, frameLine(" "+titleStyle.Render("gochat")+"   "+mutedStyle.Render("settings"), innerWidth))
+		rows = append(rows, borderStyle.Render("├"+strings.Repeat("─", innerWidth)+"┤"))
+
+		settingsRows := m.settingsView(innerWidth, bodyHeight)
+		for i := 0; i < bodyHeight; i++ {
+			rows = append(rows, frameLine(settingsRows[i], innerWidth))
+		}
+
+		rows = append(rows, borderStyle.Render("├"+strings.Repeat("─", innerWidth)+"┤"))
+		footer := i18n.T.FooterSettings()
+		rows = append(rows, frameLine(mutedStyle.Render(footer), innerWidth))
+		rows = append(rows, borderStyle.Render("└"+strings.Repeat("─", innerWidth)+"┘"))
+		return strings.Join(rows, "\n")
+	}
+
 	var rows []string
 	rows = append(rows, borderStyle.Render("┌─ gochat "+strings.Repeat("─", m.width-11)+"┐"))
 	rows = append(rows, frameLine(" "+titleStyle.Render("gochat")+"   "+mutedStyle.Render("peers"), innerWidth))
@@ -1213,8 +1231,6 @@ func (m model) View() string {
 		footer = i18n.T.FooterLogs()
 	} else if m.panel == invitePanel {
 		footer = i18n.T.FooterInviteNew()
-	} else if m.panel == settingsPanel {
-		footer = i18n.T.FooterSettings()
 	} else if m.panel != noPanel {
 		footer = i18n.T.FooterCancel()
 	}
@@ -1391,65 +1407,104 @@ func deliveryLabel(status message.DeliveryStatus) string {
 	}
 }
 
+func (m model) settingsView(width, height int) []string {
+	rows := make([]string, height)
+
+	if m.settingsConfirmWipe {
+		cardWidth := min(72, width-6)
+		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")).Bold(true)
+		bodyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FCA5A5")).Width(cardWidth - 6)
+		promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FDE047")).Bold(true)
+
+		boxContent := []string{
+			warnStyle.Render("⚠  " + i18n.T.SettingsWipeConfirmTitle()),
+			"",
+			bodyStyle.Render(i18n.T.SettingsWipeWarning()),
+			"",
+			promptStyle.Render(i18n.T.SettingsWipePrompt()),
+		}
+		box := lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(lipgloss.Color("#EF4444")).
+			Padding(1, 3).
+			Width(cardWidth).
+			Render(strings.Join(boxContent, "\n"))
+
+		boxLines := strings.Split(box, "\n")
+		startRow := max(0, (height-len(boxLines))/2)
+		for i, line := range boxLines {
+			if startRow+i < height {
+				rows[startRow+i] = center(line, width)
+			}
+		}
+		return rows
+	}
+
+	var content []string
+	content = append(content,
+		"",
+		"   "+titleStyle.Bold(true).Render(i18n.T.SettingsPanelTitle()),
+		"   "+mutedStyle.Render(strings.Repeat("─", min(width-6, 68))),
+		"",
+		"   "+titleStyle.Render(i18n.T.SettingsLanguageSection()),
+		"",
+	)
+
+	langs := i18n.AvailableLanguages()
+	current := i18n.CurrentLanguage()
+	for i, l := range langs {
+		radio := "( )"
+		if l.Tag == current {
+			radio = "(*)"
+		}
+		label := fmt.Sprintf("%s %s (%s)", radio, l.Name, l.Tag)
+		if m.settingsSelected == i {
+			content = append(content, "   "+selectedStyle.Render(" > "+label+" "))
+		} else {
+			content = append(content, "     "+mutedStyle.Render(label))
+		}
+	}
+
+	content = append(content,
+		"",
+		"   "+lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")).Bold(true).Render(i18n.T.SettingsDangerSection()),
+		"",
+	)
+
+	wipeLabel := i18n.T.SettingsWipeOption()
+	if m.settingsSelected == len(langs) {
+		dangerSelectedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#DC2626"))
+		content = append(content, "   "+dangerSelectedStyle.Render(" > "+wipeLabel+" "))
+	} else {
+		dangerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F87171"))
+		content = append(content, "     "+dangerStyle.Render(wipeLabel))
+	}
+
+	content = append(content,
+		"",
+		"   "+mutedStyle.Render(i18n.T.InstructionSettings()),
+	)
+
+	if m.errText != "" {
+		errorStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#F87171")).
+			Width(max(1, width-8))
+		content = append(content, "", "   "+errorStyle.Render(m.errText))
+	}
+
+	for i, line := range content {
+		if i < height {
+			rows[i] = line
+		}
+	}
+	return rows
+}
+
 func (m model) dialog(width, height int) []string {
 	rows := make([]string, height)
 	boxWidth := min(76, width-4)
 	var content []string
-	if m.panel == settingsPanel {
-		if m.settingsConfirmWipe {
-			warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F87171")).Bold(true)
-			bodyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FCA5A5")).Width(boxWidth - 6)
-			content = []string{
-				warnStyle.Render(i18n.T.SettingsWipeConfirmTitle()),
-				"",
-				bodyStyle.Render(i18n.T.SettingsWipeWarning()),
-				"",
-				mutedStyle.Render(i18n.T.SettingsWipePrompt()),
-			}
-		} else {
-			langs := i18n.AvailableLanguages()
-			var langRows []string
-			current := i18n.CurrentLanguage()
-			for i, l := range langs {
-				radio := "( )"
-				if l.Tag == current {
-					radio = "(*)"
-				}
-				label := fmt.Sprintf("%s %s (%s)", radio, l.Name, l.Tag)
-				if m.settingsSelected == i {
-					langRows = append(langRows, selectedStyle.Render(" > "+label+" "))
-				} else {
-					langRows = append(langRows, mutedStyle.Render("   "+label))
-				}
-			}
-
-			var wipeRow string
-			wipeLabel := i18n.T.SettingsWipeOption()
-			if m.settingsSelected == len(langs) {
-				dangerSelectedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#DC2626"))
-				wipeRow = dangerSelectedStyle.Render(" > " + wipeLabel + " ")
-			} else {
-				dangerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F87171"))
-				wipeRow = dangerStyle.Render("   " + wipeLabel)
-			}
-
-			content = []string{
-				titleStyle.Render(i18n.T.SettingsPanelTitle()),
-				"",
-				mutedStyle.Render(i18n.T.SettingsLanguageSection()),
-				"",
-			}
-			content = append(content, langRows...)
-			content = append(content,
-				"",
-				mutedStyle.Render(i18n.T.SettingsDangerSection()),
-				"",
-				wipeRow,
-				"",
-				mutedStyle.Render(i18n.T.InstructionSettings()),
-			)
-		}
-	} else if m.panel == addPanel {
+	if m.panel == addPanel {
 		field := m.code
 		if field == "" {
 			field = "ABC123XYZ"
@@ -1556,12 +1611,14 @@ func fit(value string, width int) string {
 	if width <= 0 {
 		return ""
 	}
+	value = strings.ReplaceAll(value, "\ufe0f", "")
 	value = ansi.Truncate(value, width, "…")
 	return value + strings.Repeat(" ", max(0, width-lipgloss.Width(value)))
 }
 
 func center(value string, width int) string {
-	return strings.Repeat(" ", max(0, (width-lipgloss.Width(value))/2)) + value
+	clean := strings.ReplaceAll(value, "\ufe0f", "")
+	return strings.Repeat(" ", max(0, (width-lipgloss.Width(clean))/2)) + value
 }
 
 func alignChatLine(value string, width int, right bool) string {

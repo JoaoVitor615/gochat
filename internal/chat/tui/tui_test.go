@@ -11,6 +11,7 @@ import (
 	"github.com/JoaoVitor615/gochat/internal/chat/storage"
 	"github.com/JoaoVitor615/gochat/internal/i18n"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestModel_SplashView(t *testing.T) {
@@ -294,13 +295,16 @@ func TestModel_SettingsPanel(t *testing.T) {
 		t.Fatalf("expected settingsPanel on esc, got %v", mod.panel)
 	}
 
-	// View should render settings dialog with options
+	// View should render full-screen settings without contacts sidebar
 	view := mod.View()
 	if !strings.Contains(view, "CONFIGURAÇÕES") {
 		t.Errorf("expected view to contain 'CONFIGURAÇÕES', got:\n%s", view)
 	}
 	if !strings.Contains(view, "Español") || !strings.Contains(view, "English") || !strings.Contains(view, "Português") {
 		t.Errorf("expected view to list all languages, got:\n%s", view)
+	}
+	if strings.Contains(view, "CONTATOS") || strings.Contains(view, "PEERS") {
+		t.Errorf("expected settings view to NOT show contacts sidebar, got:\n%s", view)
 	}
 
 	// 2. Select Spanish
@@ -385,6 +389,14 @@ func TestModel_SettingsCryptographicErasure(t *testing.T) {
 	view := m.View()
 	if !strings.Contains(view, "Apagar todas as mensagens") {
 		t.Errorf("expected view to contain wipe option, got:\n%s", view)
+	}
+	if strings.Contains(view, "Alice") {
+		t.Errorf("expected contacts (Alice) to be hidden in full-screen settings, got:\n%s", view)
+	}
+	for i, line := range strings.Split(view, "\n") {
+		if w := lipgloss.Width(line); w != m.width {
+			t.Errorf("row %d width mismatch: expected %d, got %d for line:\n%s", i, m.width, w, line)
+		}
 	}
 
 	// 2. Press Enter on Wipe option -> should enter confirmation mode

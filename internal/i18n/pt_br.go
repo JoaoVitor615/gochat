@@ -244,7 +244,7 @@ func (p *ptBR) LogsPanelEmpty() string { return "Nenhum log registrado ainda." }
 func (p *ptBR) SettingsPanelTitle() string       { return "CONFIGURAÇÕES" }
 func (p *ptBR) SettingsLanguageSection() string  { return "Idioma / Language:" }
 func (p *ptBR) SettingsDangerSection() string    { return "Área de Perigo:" }
-func (p *ptBR) SettingsWipeOption() string       { return "⚠️  Apagar todas as mensagens e contatos" }
+func (p *ptBR) SettingsWipeOption() string       { return "⚠  Apagar todas as mensagens e contatos" }
 func (p *ptBR) SettingsWipeConfirmTitle() string { return "DESTRUIÇÃO CRIPTOGRÁFICA (AES-256)" }
 func (p *ptBR) SettingsWipeWarning() string {
 	return "AÇÃO IRREVERSÍVEL: Todos os dados (mensagens, histórico e contatos) serão sobrescritos com criptografia AES-256 e o banco de dados será apagado da máquina. Não será possível recuperar nenhum dado."
