@@ -51,6 +51,7 @@ type peer struct {
 	lastSeenAt    time.Time
 	lastMessageAt time.Time
 	unreadCount   int
+	online        bool
 }
 
 type panel uint8
@@ -372,6 +373,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.peers[idx].lastMessageAt = stored.Envelope.CreatedAt
 			}
 			if stored.Envelope.SenderPeerID != m.localID {
+				m.peers[idx].online = true
 				if stored.ConversationPeerID != m.activePeerID() {
 					m.peers[idx].unreadCount++
 				}
@@ -382,9 +384,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case presenceEventMsg:
 		event := events.PeerPresence(msg)
 		if idx := m.peerIndex(event.PeerID); idx >= 0 {
-			if event.LastSeenAt.After(m.peers[idx].lastSeenAt) {
+			if !event.LastSeenAt.IsZero() && event.LastSeenAt.After(m.peers[idx].lastSeenAt) {
 				m.peers[idx].lastSeenAt = event.LastSeenAt
 			}
+			m.peers[idx].online = event.Online
 		}
 		return m, waitForPresenceCmd(m.presenceCh)
 	case historyResult:
@@ -477,6 +480,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.connectionErr != nil {
 			m.chatNotice = i18n.T.NoticePeerSavedDialFailed(msg.connectionErr)
 		} else {
+			if m.active >= 0 && m.active < len(m.peers) {
+				m.peers[m.active].online = true
+			}
 			m.chatNotice = i18n.T.NoticeP2PConnected()
 		}
 	case acceptancesResult:
@@ -515,6 +521,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if accepted.connectionErr != nil {
 			m.chatNotice = i18n.T.NoticeInviteAcceptedDialFailed(accepted.connectionErr)
 		} else {
+			if m.active >= 0 && m.active < len(m.peers) {
+				m.peers[m.active].online = true
+			}
 			m.chatNotice = i18n.T.NoticeInviteAcceptedConnected()
 		}
 		return m, m.loadHistoryCmd(m.activePeerID(), nil, false)
@@ -1126,6 +1135,9 @@ func (m *model) upsertPeer(updated peer) {
 		if updated.unreadCount == 0 && m.peers[index].unreadCount > 0 {
 			updated.unreadCount = m.peers[index].unreadCount
 		}
+		if !updated.online && m.peers[index].online {
+			updated.online = m.peers[index].online
+		}
 		m.peers[index] = updated
 		m.sortPeers()
 		return
@@ -1267,7 +1279,7 @@ func (m model) sidebar(width, height int) []string {
 		if name == "" {
 			name = shortPeerID(p.id)
 		}
-		online := isPeerOnline(p.lastSeenAt)
+		online := isPeerOnline(p)
 		var circle string
 		if online {
 			circle = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render("●")
@@ -1347,7 +1359,7 @@ func (m model) mainArea(width, height int) []string {
 		return rows
 	}
 	p := m.peers[m.active]
-	online := isPeerOnline(p.lastSeenAt)
+	online := isPeerOnline(p)
 	var circle string
 	if online {
 		circle = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render("●")
@@ -1614,13 +1626,8 @@ func peerLastSeen(lastSeenAt time.Time) string {
 	return i18n.T.LastSeen(lastSeenAt)
 }
 
-const presenceOnlineThreshold = 30 * time.Second
-
-func isPeerOnline(lastSeenAt time.Time) bool {
-	if lastSeenAt.IsZero() {
-		return false
-	}
-	return time.Since(lastSeenAt) < presenceOnlineThreshold
+func isPeerOnline(p peer) bool {
+	return p.online
 }
 
 func frameLine(value string, width int) string {

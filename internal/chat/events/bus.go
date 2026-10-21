@@ -11,6 +11,7 @@ import (
 type PeerPresence struct {
 	PeerID     string
 	LastSeenAt time.Time
+	Online     bool
 }
 
 // Bus provides a lightweight, thread-safe pub/sub mechanism for chat message and presence events.

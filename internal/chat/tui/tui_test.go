@@ -131,20 +131,11 @@ func TestPeerLastSeen(t *testing.T) {
 }
 
 func TestIsPeerOnline(t *testing.T) {
-	if isPeerOnline(time.Time{}) {
-		t.Error("zero time should be offline")
+	if isPeerOnline(peer{online: false}) {
+		t.Error("peer with online=false should be offline")
 	}
-	if !isPeerOnline(time.Now().Add(-10 * time.Second)) {
-		t.Error("10 seconds ago should be online")
-	}
-	if !isPeerOnline(time.Now().Add(-25 * time.Second)) {
-		t.Error("25 seconds ago should be online")
-	}
-	if isPeerOnline(time.Now().Add(-35 * time.Second)) {
-		t.Error("35 seconds ago should be offline")
-	}
-	if isPeerOnline(time.Now().Add(-1 * time.Hour)) {
-		t.Error("1 hour ago should be offline")
+	if !isPeerOnline(peer{online: true}) {
+		t.Error("peer with online=true should be online")
 	}
 }
 
@@ -163,6 +154,7 @@ func TestModel_PresenceOnlineAndOffline(t *testing.T) {
 				id:          "peer-1",
 				displayName: "Alice",
 				lastSeenAt:  time.Now().Add(-2 * time.Hour), // offline initially
+				online:      false,
 			},
 		},
 	}
@@ -177,7 +169,7 @@ func TestModel_PresenceOnlineAndOffline(t *testing.T) {
 	}
 
 	// Now send presence event saying Alice was seen right now
-	newM, _ := m.Update(presenceEventMsg{PeerID: "peer-1", LastSeenAt: time.Now()})
+	newM, _ := m.Update(presenceEventMsg{PeerID: "peer-1", LastSeenAt: time.Now(), Online: true})
 	mod := newM.(model)
 
 	// Online check
@@ -187,6 +179,18 @@ func TestModel_PresenceOnlineAndOffline(t *testing.T) {
 	}
 	if !strings.Contains(sideOnline, "online") {
 		t.Errorf("expected online in sidebar, got:\n%s", sideOnline)
+	}
+
+	// Now send disconnect event: Alice should be marked offline IMMEDIATELY with zero delay!
+	offM, _ := mod.Update(presenceEventMsg{PeerID: "peer-1", Online: false})
+	offMod := offM.(model)
+
+	sideOfflineNow := strings.Join(offMod.sidebar(25, 20), "\n")
+	if !strings.Contains(sideOfflineNow, "○") {
+		t.Errorf("expected offline circle ○ immediately on disconnect, got:\n%s", sideOfflineNow)
+	}
+	if !strings.Contains(sideOfflineNow, "visto") {
+		t.Errorf("expected visto in offline sidebar immediately on disconnect, got:\n%s", sideOfflineNow)
 	}
 }
 

@@ -42,7 +42,7 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 	p2p.RegisterPresenceHandler(h, func(remotePeerID string) {
 		now := time.Now().UTC()
 		if a.Bus != nil {
-			a.Bus.PublishPresence(events.PeerPresence{PeerID: remotePeerID, LastSeenAt: now})
+			a.Bus.PublishPresence(events.PeerPresence{PeerID: remotePeerID, LastSeenAt: now, Online: true})
 		}
 		_ = a.Store.SavePeer(context.Background(), storage.Peer{PeerID: remotePeerID, LastSeenAt: now})
 	})
@@ -94,7 +94,7 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 			remotePeerID := connection.RemotePeer().String()
 			now := time.Now().UTC()
 			if a.Bus != nil {
-				a.Bus.PublishPresence(events.PeerPresence{PeerID: remotePeerID, LastSeenAt: now})
+				a.Bus.PublishPresence(events.PeerPresence{PeerID: remotePeerID, LastSeenAt: now, Online: true})
 			}
 			_ = a.Store.SavePeer(context.Background(), storage.Peer{PeerID: remotePeerID, LastSeenAt: now})
 			go func() {
@@ -102,6 +102,17 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 					log.Printf("retry queued messages for peer %s: %v", remotePeerID, err)
 				}
 			}()
+		},
+		DisconnectedF: func(_ network.Network, connection network.Conn) {
+			remotePeer := connection.RemotePeer()
+			remotePeerID := remotePeer.String()
+			if len(h.Network().ConnsToPeer(remotePeer)) == 0 {
+				now := time.Now().UTC()
+				if a.Bus != nil {
+					a.Bus.PublishPresence(events.PeerPresence{PeerID: remotePeerID, LastSeenAt: now, Online: false})
+				}
+				_ = a.Store.SavePeer(context.Background(), storage.Peer{PeerID: remotePeerID, LastSeenAt: now})
+			}
 		},
 	}
 	h.Network().Notify(peerNotifications)
@@ -203,13 +214,20 @@ func runPresencePing(ctx context.Context, h host.Host, store storage.Repository,
 			if pingErr == nil {
 				now := time.Now().UTC()
 				if bus != nil {
-					bus.PublishPresence(events.PeerPresence{PeerID: peerIDStr, LastSeenAt: now})
+					bus.PublishPresence(events.PeerPresence{PeerID: peerIDStr, LastSeenAt: now, Online: true})
 				}
 				_ = store.SavePeer(context.Background(), storage.Peer{PeerID: peerIDStr, LastSeenAt: now})
 				if messenger != nil {
 					go func() {
 						_ = messenger.RetryPeer(ctx, peerIDStr)
 					}()
+				}
+			} else {
+				if len(h.Network().ConnsToPeer(target)) == 0 {
+					now := time.Now().UTC()
+					if bus != nil {
+						bus.PublishPresence(events.PeerPresence{PeerID: peerIDStr, LastSeenAt: now, Online: false})
+					}
 				}
 			}
 		}(p.PeerID, targetID)
