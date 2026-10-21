@@ -112,4 +112,9 @@ type Messages interface {
 	SettingsWipeWarning() string
 	SettingsWipePrompt() string
 	InstructionSettings() string
+
+	// Toast Notifications
+	ToastNewMessageSingular() string
+	ToastNewMessagesPlural(count int) string
+	ToastSubtext() string
 }

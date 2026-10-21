@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -579,5 +580,175 @@ func TestModel_UnreadBadgeLifecycle(t *testing.T) {
 	view = m.View()
 	if !strings.Contains(view, "(1)") {
 		t.Errorf("expected view to show badge for Maria, got:\n%s", view)
+	}
+}
+
+func TestModel_ToastNotificationAndSpamLimit(t *testing.T) {
+	orig := i18n.CurrentLanguage()
+	defer i18n.SetLanguage(orig)
+	i18n.SetLanguage(i18n.LangPtBR)
+
+	type toastCall struct {
+		title   string
+		message string
+		subtext string
+	}
+
+	var calls []toastCall
+
+	mockStore := &mockWipeStore{}
+	m := model{
+		width:     80,
+		height:    24,
+		splash:    false,
+		active:    -1, // Home screen (no chat open)
+		localID:   "local-peer",
+		peerStore: mockStore,
+		peers: []peer{
+			{id: "peer-joao", displayName: "João"},
+		},
+		panel: noPanel,
+		toastNotifier: func(title, message, subtext string) {
+			calls = append(calls, toastCall{title: title, message: message, subtext: subtext})
+		},
+	}
+
+	// 1. Message 1 arrives from João
+	msg1 := storage.StoredMessage{
+		ConversationPeerID: "peer-joao",
+		Envelope: message.Message{
+			ID:           "msg-1",
+			SenderPeerID: "peer-joao",
+			Content:      "Mensagem 1",
+			CreatedAt:    time.Now().UTC(),
+		},
+	}
+	newM, _ := m.Update(messageEventMsg(msg1))
+	m = newM.(model)
+
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 toast call, got %d", len(calls))
+	}
+	if calls[0].title != "João" {
+		t.Errorf("expected title to be 'João', got %q", calls[0].title)
+	}
+	if calls[0].message != "1 nova mensagem" {
+		t.Errorf("expected message to be '1 nova mensagem', got %q", calls[0].message)
+	}
+	if calls[0].subtext != "Abra o terminal para visualizar" {
+		t.Errorf("expected subtext to be 'Abra o terminal para visualizar', got %q", calls[0].subtext)
+	}
+
+	// 2. Message 2 arrives from João -> "2 mensagens novas"
+	msg2 := storage.StoredMessage{
+		ConversationPeerID: "peer-joao",
+		Envelope: message.Message{
+			ID:           "msg-2",
+			SenderPeerID: "peer-joao",
+			Content:      "Mensagem 2",
+			CreatedAt:    time.Now().UTC().Add(time.Second),
+		},
+	}
+	newM, _ = m.Update(messageEventMsg(msg2))
+	m = newM.(model)
+
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 toast calls, got %d", len(calls))
+	}
+	if calls[1].title != "João" || calls[1].message != "2 mensagens novas" {
+		t.Errorf("expected '2 mensagens novas', got title=%q, msg=%q", calls[1].title, calls[1].message)
+	}
+
+	// 3. Send messages 3, 4, 5
+	for count := 3; count <= 5; count++ {
+		msg := storage.StoredMessage{
+			ConversationPeerID: "peer-joao",
+			Envelope: message.Message{
+				ID:           fmt.Sprintf("msg-%d", count),
+				SenderPeerID: "peer-joao",
+				Content:      fmt.Sprintf("Mensagem %d", count),
+				CreatedAt:    time.Now().UTC().Add(time.Duration(count) * time.Second),
+			},
+		}
+		newM, _ = m.Update(messageEventMsg(msg))
+		m = newM.(model)
+
+		if len(calls) != count {
+			t.Fatalf("expected %d toast calls at count %d, got %d", count, count, len(calls))
+		}
+		expectedMsg := fmt.Sprintf("%d mensagens novas", count)
+		if calls[count-1].message != expectedMsg {
+			t.Errorf("expected %q, got %q", expectedMsg, calls[count-1].message)
+		}
+	}
+
+	// 4. Message 6 arrives -> exceeds limit of 5 -> NO notification should be emitted!
+	msg6 := storage.StoredMessage{
+		ConversationPeerID: "peer-joao",
+		Envelope: message.Message{
+			ID:           "msg-6",
+			SenderPeerID: "peer-joao",
+			Content:      "Mensagem 6",
+			CreatedAt:    time.Now().UTC().Add(6 * time.Second),
+		},
+	}
+	newM, _ = m.Update(messageEventMsg(msg6))
+	m = newM.(model)
+
+	if len(calls) != 5 {
+		t.Errorf("expected toast calls to remain capped at 5, but got %d calls", len(calls))
+	}
+	joaoIdx := m.peerIndex("peer-joao")
+	if m.peers[joaoIdx].unreadCount != 6 {
+		t.Errorf("expected unreadCount to still increment to 6, got %d", m.peers[joaoIdx].unreadCount)
+	}
+
+	// 5. User opens the conversation with João -> resets unreadCount
+	m.selected = joaoIdx
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(model)
+
+	if m.peers[joaoIdx].unreadCount != 0 {
+		t.Fatalf("expected unreadCount to reset to 0, got %d", m.peers[joaoIdx].unreadCount)
+	}
+
+	// Message arriving while conversation is OPEN -> NO notification
+	msgInOpenChat := storage.StoredMessage{
+		ConversationPeerID: "peer-joao",
+		Envelope: message.Message{
+			ID:           "msg-open",
+			SenderPeerID: "peer-joao",
+			Content:      "No chat aberto",
+			CreatedAt:    time.Now().UTC().Add(7 * time.Second),
+		},
+	}
+	newM, _ = m.Update(messageEventMsg(msgInOpenChat))
+	m = newM.(model)
+	if len(calls) != 5 {
+		t.Errorf("expected no notification while chat is open, got %d calls", len(calls))
+	}
+
+	// 6. User exits the conversation back to home screen
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = newM.(model)
+
+	// Now a new message arrives from João -> notification starts again!
+	msgFresh := storage.StoredMessage{
+		ConversationPeerID: "peer-joao",
+		Envelope: message.Message{
+			ID:           "msg-fresh",
+			SenderPeerID: "peer-joao",
+			Content:      "Nova rodada",
+			CreatedAt:    time.Now().UTC().Add(8 * time.Second),
+		},
+	}
+	newM, _ = m.Update(messageEventMsg(msgFresh))
+	m = newM.(model)
+
+	if len(calls) != 6 {
+		t.Fatalf("expected 6th toast call after reopening cycle, got %d", len(calls))
+	}
+	if calls[5].message != "1 nova mensagem" {
+		t.Errorf("expected '1 nova mensagem', got %q", calls[5].message)
 	}
 }

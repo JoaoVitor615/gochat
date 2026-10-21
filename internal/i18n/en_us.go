@@ -253,3 +253,8 @@ func (e *enUS) SettingsWipePrompt() string {
 	return "Press 'y' to confirm or 'n'/ESC to cancel"
 }
 func (e *enUS) InstructionSettings() string { return "↑/↓ select  ·  enter apply  ·  esc close" }
+
+// Toast Notifications
+func (e *enUS) ToastNewMessageSingular() string         { return "1 new message" }
+func (e *enUS) ToastNewMessagesPlural(count int) string { return fmt.Sprintf("%d new messages", count) }
+func (e *enUS) ToastSubtext() string                    { return "Open terminal to view" }

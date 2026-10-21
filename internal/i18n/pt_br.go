@@ -253,3 +253,8 @@ func (p *ptBR) SettingsWipePrompt() string {
 	return "Pressione 'y' para confirmar ou 'n'/ESC para cancelar"
 }
 func (p *ptBR) InstructionSettings() string { return "↑/↓ navegar  ·  enter aplicar  ·  esc fechar" }
+
+// Toast Notifications
+func (p *ptBR) ToastNewMessageSingular() string         { return "1 nova mensagem" }
+func (p *ptBR) ToastNewMessagesPlural(count int) string { return fmt.Sprintf("%d mensagens novas", count) }
+func (p *ptBR) ToastSubtext() string                    { return "Abra o terminal para visualizar" }

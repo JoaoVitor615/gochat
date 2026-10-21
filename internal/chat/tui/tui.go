@@ -13,6 +13,7 @@ import (
 	"github.com/JoaoVitor615/gochat/internal/chat/logger"
 	"github.com/JoaoVitor615/gochat/internal/chat/message"
 	"github.com/JoaoVitor615/gochat/internal/chat/messaging"
+	"github.com/JoaoVitor615/gochat/internal/chat/notification"
 	"github.com/JoaoVitor615/gochat/internal/chat/storage"
 	"github.com/JoaoVitor615/gochat/internal/i18n"
 	tea "github.com/charmbracelet/bubbletea"
@@ -105,6 +106,7 @@ type model struct {
 	splashMinDone          bool
 	stopPresence           func()
 	initFn                 func(context.Context) (MessageSender, func(), error)
+	toastNotifier          func(title, message, subtext string)
 }
 
 type inviteResult struct {
@@ -376,6 +378,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.peers[idx].online = true
 				if stored.ConversationPeerID != m.activePeerID() {
 					m.peers[idx].unreadCount++
+					if m.peers[idx].unreadCount <= 5 {
+						contactName := m.peers[idx].displayName
+						if contactName == "" {
+							contactName = shortPeerID(m.peers[idx].id)
+						}
+						var msgText string
+						if m.peers[idx].unreadCount == 1 {
+							msgText = i18n.T.ToastNewMessageSingular()
+						} else {
+							msgText = i18n.T.ToastNewMessagesPlural(m.peers[idx].unreadCount)
+						}
+						subtext := i18n.T.ToastSubtext()
+						m.notifyToast(contactName, msgText, subtext)
+					}
 				}
 			}
 			m.sortPeers()
@@ -1628,6 +1644,14 @@ func peerLastSeen(lastSeenAt time.Time) string {
 
 func isPeerOnline(p peer) bool {
 	return p.online
+}
+
+func (m model) notifyToast(title, message, subtext string) {
+	if m.toastNotifier != nil {
+		m.toastNotifier(title, message, subtext)
+		return
+	}
+	notification.Send(title, message, subtext)
 }
 
 func frameLine(value string, width int) string {
