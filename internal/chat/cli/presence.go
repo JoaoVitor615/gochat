@@ -15,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
@@ -45,6 +46,11 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 			a.Bus.PublishPresence(events.PeerPresence{PeerID: remotePeerID, LastSeenAt: now, Online: true})
 		}
 		_ = a.Store.SavePeer(context.Background(), storage.Peer{PeerID: remotePeerID, LastSeenAt: now})
+		if a.Messenger != nil {
+			go func() {
+				_ = a.Messenger.RetryPeer(ctx, remotePeerID)
+			}()
+		}
 	})
 
 	observerAddress, observerErr := lookupObserverAddress(ctx, a.DiscoveryClient)
@@ -91,7 +97,9 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 	}
 	peerNotifications := &network.NotifyBundle{
 		ConnectedF: func(_ network.Network, connection network.Conn) {
-			remotePeerID := connection.RemotePeer().String()
+			remotePeer := connection.RemotePeer()
+			remotePeerID := remotePeer.String()
+			p2p.ClearBackoff(h, remotePeer)
 			now := time.Now().UTC()
 			if a.Bus != nil {
 				a.Bus.PublishPresence(events.PeerPresence{PeerID: remotePeerID, LastSeenAt: now, Online: true})
@@ -143,6 +151,10 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 	go func() {
 		defer close(done)
 		ticker := time.NewTicker(heartbeatInterval)
+		var lastObservedAddress []ma.Multiaddr
+		if len(observedAddress) > 0 {
+			lastObservedAddress = observedAddress
+		}
 		defer ticker.Stop()
 
 		for {
@@ -157,6 +169,11 @@ func (a *App) startPresence(ctx context.Context) (func(), error) {
 				}
 				if err != nil {
 					log.Printf("refresh public UDP address observation: %v", err)
+				}
+				if len(currentObservedAddress) > 0 {
+					lastObservedAddress = currentObservedAddress
+				} else if len(lastObservedAddress) > 0 {
+					currentObservedAddress = lastObservedAddress
 				}
 				currentAddresses, addressErr := peerAddressStrings(h, currentObservedAddress)
 				if addressErr == nil {
@@ -199,6 +216,7 @@ func runPresencePing(ctx context.Context, h host.Host, store storage.Repository,
 			continue
 		}
 		go func(peerIDStr string, target peer.ID) {
+			p2p.ClearBackoff(h, target)
 			pingErr := p2p.PingPeer(ctx, h, target)
 			if pingErr != nil && client != nil {
 				resolveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -208,6 +226,7 @@ func runPresencePing(ctx context.Context, h host.Host, store storage.Repository,
 						_ = messenger.AddPeerAddresses(peerIDStr, newAddrs)
 					}
 					_ = store.SavePeer(context.Background(), storage.Peer{PeerID: peerIDStr, Addresses: newAddrs})
+					p2p.ClearBackoff(h, target)
 					pingErr = p2p.PingPeer(ctx, h, target)
 				}
 			}
@@ -327,9 +346,16 @@ func observePublicAddress(ctx context.Context, h host.Host, observerAddress stri
 }
 
 func observeAtPeer(ctx context.Context, h host.Host, observer *peer.AddrInfo) ([]ma.Multiaddr, error) {
+	if h != nil && observer != nil {
+		p2p.ClearBackoff(h, observer.ID)
+		h.Peerstore().ClearAddrs(observer.ID)
+		h.Peerstore().AddAddrs(observer.ID, observer.Addrs, peerstore.PermanentAddrTTL)
+	}
 	dialCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	if err := h.Connect(dialCtx, *observer); err != nil {
+		_ = h.Network().ClosePeer(observer.ID)
+		p2p.ClearBackoff(h, observer.ID)
 		return nil, fmt.Errorf("connect to libp2p address observer: %w", err)
 	}
 
@@ -338,6 +364,8 @@ func observeAtPeer(ctx context.Context, h host.Host, observer *peer.AddrInfo) ([
 	for {
 		address, err := requestObservedAddress(dialCtx, h, observer.ID)
 		if err != nil {
+			_ = h.Network().ClosePeer(observer.ID)
+			p2p.ClearBackoff(h, observer.ID)
 			return nil, err
 		}
 		if address != nil {
@@ -346,6 +374,8 @@ func observeAtPeer(ctx context.Context, h host.Host, observer *peer.AddrInfo) ([
 
 		select {
 		case <-dialCtx.Done():
+			_ = h.Network().ClosePeer(observer.ID)
+			p2p.ClearBackoff(h, observer.ID)
 			return nil, fmt.Errorf("timed out waiting for observer to see this peer: %w", dialCtx.Err())
 		case <-ticker.C:
 		}

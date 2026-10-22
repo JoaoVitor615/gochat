@@ -24,6 +24,7 @@ func Connect(ctx context.Context, h host.Host, peerID peer.ID) (*Connection, err
 		return nil, fmt.Errorf("connect: invalid peer ID: %w", err)
 	}
 
+	ClearBackoff(h, peerID)
 	stream, err := OpenStream(ctx, h, peerID)
 	if err != nil {
 		return nil, err
@@ -47,6 +48,7 @@ func SendMessageAndWaitForAck(ctx context.Context, h host.Host, peerID peer.ID, 
 	if msg.ID == "" || msg.SenderPeerID != h.ID().String() || msg.RecipientPeerID != peerID.String() || msg.ProtocolVersion != message.CurrentProtocolVersion || msg.CreatedAt.IsZero() {
 		return false, fmt.Errorf("send message: invalid message envelope")
 	}
+	ClearBackoff(h, peerID)
 	stream, err := OpenStream(ctx, h, peerID)
 	if err != nil {
 		return false, err

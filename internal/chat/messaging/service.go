@@ -110,6 +110,7 @@ func (s *Service) AddPeerAddresses(peerIDString string, addressStrings []string)
 
 	s.host.Peerstore().ClearAddrs(peerID)
 	s.host.Peerstore().AddAddrs(peerID, addresses, peerstore.PermanentAddrTTL)
+	p2p.ClearBackoff(s.host, peerID)
 	return nil
 }
 
@@ -219,6 +220,7 @@ func (s *Service) RetryPeer(ctx context.Context, peerID string) error {
 		return errors.New("retry messages: local peer ID is required")
 	}
 
+	p2p.ClearBackoff(s.host, decodedPeerID)
 	unlock := s.lockPeer(decodedPeerID.String())
 	defer unlock()
 

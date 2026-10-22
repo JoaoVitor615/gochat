@@ -43,6 +43,7 @@ func PingPeer(ctx context.Context, h host.Host, peerID peer.ID) error {
 	if ctx == nil || h == nil {
 		return errors.New("context and host are required")
 	}
+	ClearBackoff(h, peerID)
 	dialCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
