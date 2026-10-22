@@ -605,7 +605,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return m, tea.Quit
 				}
-			case "enter", "space":
+			case "enter", "space", " ":
 				if m.splashInitDone && m.splashErr == nil {
 					m.splash = false
 					return m, refreshTickCmd()
@@ -727,7 +727,7 @@ func (m model) updateSettingsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.settingsSelected < totalOptions-1 {
 			m.settingsSelected++
 		}
-	case "enter", " ":
+	case "enter", " ", "space":
 		if m.settingsSelected >= 0 && m.settingsSelected < len(langs) {
 			i18n.SetLanguage(langs[m.settingsSelected].Tag)
 		} else if m.settingsSelected == len(langs) {
@@ -872,9 +872,17 @@ func (m model) updateChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "pgdown":
 		m.scrollBack = max(0, m.scrollBack-max(1, m.height/3))
+	case "space", " ", "shift+space":
+		if !m.sending {
+			m.input += " "
+		}
 	default:
-		if msg.Type == tea.KeyRunes && !m.sending {
-			m.input += string(msg.Runes)
+		if !m.sending {
+			if msg.Type == tea.KeySpace {
+				m.input += " "
+			} else if msg.Type == tea.KeyRunes {
+				m.input += strings.ReplaceAll(string(msg.Runes), "\u00A0", " ")
+			}
 		}
 	}
 	return m, nil
@@ -969,13 +977,18 @@ func (m model) updateNicknamePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "ctrl+u":
 		m.nicknameInput = ""
-	case "space", " ":
+	case "space", " ", "shift+space":
 		if len([]rune(m.nicknameInput)) < 30 {
 			m.nicknameInput += " "
 		}
 	default:
-		if msg.Type == tea.KeyRunes {
-			for _, r := range msg.Runes {
+		if msg.Type == tea.KeySpace {
+			if len([]rune(m.nicknameInput)) < 30 {
+				m.nicknameInput += " "
+			}
+		} else if msg.Type == tea.KeyRunes {
+			runesStr := strings.ReplaceAll(string(msg.Runes), "\u00A0", " ")
+			for _, r := range runesStr {
 				if len([]rune(m.nicknameInput)) < 30 {
 					m.nicknameInput += string(r)
 				}

@@ -15,6 +15,68 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+func TestModel_SpacebarHandling(t *testing.T) {
+	// 1. Chat input receives space key events properly
+	m := model{
+		active: 0,
+		peers:  []peer{{id: "peer-1", displayName: "Alice"}},
+		input:  "hello",
+	}
+
+	// KeySpace (as emitted by Bubbletea when spacebar is pressed)
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	mod := newM.(model)
+	if mod.input != "hello " {
+		t.Fatalf("expected input to be 'hello ', got %q", mod.input)
+	}
+
+	// KeyRunes space
+	newM, _ = mod.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w', 'o', 'r', 'l', 'd'}})
+	mod = newM.(model)
+	if mod.input != "hello world" {
+		t.Fatalf("expected input to be 'hello world', got %q", mod.input)
+	}
+
+	// Non-breaking space \u00A0 (common on macOS keyboards with Option+Space)
+	newM, _ = mod.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'\u00A0'}})
+	mod = newM.(model)
+	if mod.input != "hello world " {
+		t.Fatalf("expected non-breaking space to be converted to ' ', got %q", mod.input)
+	}
+
+	// shift+space (common in iTerm2 with kitty protocol / CSI u)
+	newM, _ = mod.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	mod = newM.(model)
+	// Test explicit space key string
+	newM, _ = mod.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+	mod = newM.(model)
+	if mod.input != "hello world   " {
+		t.Fatalf("expected input 'hello world   ', got %q", mod.input)
+	}
+
+	// 2. Nickname input receives space key events properly
+	nickM := model{
+		panel:         nicknamePanel,
+		nicknameInput: "John",
+	}
+	newNickM, _ := nickM.Update(tea.KeyMsg{Type: tea.KeySpace})
+	nMod := newNickM.(model)
+	if nMod.nicknameInput != "John " {
+		t.Fatalf("expected nickname to be 'John ', got %q", nMod.nicknameInput)
+	}
+
+	// 3. Splash screen can be dismissed with space
+	splashM := model{
+		splash:         true,
+		splashInitDone: true,
+	}
+	newSplashM, _ := splashM.Update(tea.KeyMsg{Type: tea.KeySpace})
+	sMod := newSplashM.(model)
+	if sMod.splash {
+		t.Fatalf("expected splash to be dismissed on space, but splash was still true")
+	}
+}
+
 func TestModel_SplashView(t *testing.T) {
 	m := model{
 		width:            80,
