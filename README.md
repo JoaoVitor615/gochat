@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/Security-E2EE%20(X25519%20%7C%20ChaCha20)-purple?style=for-the-badge" alt="E2EE" />
   <img src="https://img.shields.io/badge/Storage-bbolt%20(AES--256%20Erasure)-darkgreen?style=for-the-badge" alt="Storage" />
   <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=for-the-badge" alt="Platforms" />
-  <img src="https://img.shields.io/badge/Release-v0.4.0-success?style=for-the-badge" alt="Release" />
+  <img src="https://img.shields.io/badge/Release-v0.6.0-success?style=for-the-badge" alt="Release" />
 </p>
 
 ```text
@@ -108,13 +108,13 @@ Choose the package for your operating system:
 
 | Platform | Architecture | Package Type | Download Link |
 | :--- | :--- | :--- | :--- |
-| **Windows** | `x86_64 / amd64` | **Graphical Installer (`.exe`)** | [⬇️ Download Windows Installer](https://github.com/JoaoVitor615/gochat/releases/download/v0.4.0/gochat-setup-windows-amd64.exe) |
-| **Windows** | `x86_64 / amd64` | Portable (`.zip`) | [⬇️ gochat-v0.4.0-windows-amd64.zip](https://github.com/JoaoVitor615/gochat/releases/download/v0.4.0/gochat-v0.4.0-windows-amd64.zip) |
-| **Windows** | `ARM64` | Portable (`.zip`) | [⬇️ gochat-v0.4.0-windows-arm64.zip](https://github.com/JoaoVitor615/gochat/releases/download/v0.4.0/gochat-v0.4.0-windows-arm64.zip) |
-| **Linux** | `x86_64 / amd64` | Archive (`.tar.gz`) | [⬇️ gochat-v0.4.0-linux-amd64.tar.gz](https://github.com/JoaoVitor615/gochat/releases/download/v0.4.0/gochat-v0.4.0-linux-amd64.tar.gz) |
-| **Linux** | `ARM64` | Archive (`.tar.gz`) | [⬇️ gochat-v0.4.0-linux-arm64.tar.gz](https://github.com/JoaoVitor615/gochat/releases/download/v0.4.0/gochat-v0.4.0-linux-arm64.tar.gz) |
-| **macOS** | `Apple Silicon (M1/M2/M3/M4)` | Archive (`.tar.gz`) | [⬇️ gochat-v0.4.0-darwin-arm64.tar.gz](https://github.com/JoaoVitor615/gochat/releases/download/v0.4.0/gochat-v0.4.0-darwin-arm64.tar.gz) |
-| **macOS** | `Intel 64-bit` | Archive (`.tar.gz`) | [⬇️ gochat-v0.4.0-darwin-amd64.tar.gz](https://github.com/JoaoVitor615/gochat/releases/download/v0.4.0/gochat-v0.4.0-darwin-amd64.tar.gz) |
+| **Windows** | `x86_64 / amd64` | **Graphical Installer (`.exe`)** | [⬇️ Download Windows Installer](https://github.com/JoaoVitor615/gochat/releases/download/v0.6.0/gochat-setup-windows-amd64.exe) |
+| **Windows** | `x86_64 / amd64` | Portable (`.zip`) | [⬇️ gochat-v0.6.0-windows-amd64.zip](https://github.com/JoaoVitor615/gochat/releases/download/v0.6.0/gochat-v0.6.0-windows-amd64.zip) |
+| **Windows** | `ARM64` | Portable (`.zip`) | [⬇️ gochat-v0.6.0-windows-arm64.zip](https://github.com/JoaoVitor615/gochat/releases/download/v0.6.0/gochat-v0.6.0-windows-arm64.zip) |
+| **Linux** | `x86_64 / amd64` | Archive (`.tar.gz`) | [⬇️ gochat-v0.6.0-linux-amd64.tar.gz](https://github.com/JoaoVitor615/gochat/releases/download/v0.6.0/gochat-v0.6.0-linux-amd64.tar.gz) |
+| **Linux** | `ARM64` | Archive (`.tar.gz`) | [⬇️ gochat-v0.6.0-linux-arm64.tar.gz](https://github.com/JoaoVitor615/gochat/releases/download/v0.6.0/gochat-v0.6.0-linux-arm64.tar.gz) |
+| **macOS** | `Apple Silicon (M1/M2/M3/M4)` | Archive (`.tar.gz`) | [⬇️ gochat-v0.6.0-darwin-arm64.tar.gz](https://github.com/JoaoVitor615/gochat/releases/download/v0.6.0/gochat-v0.6.0-darwin-arm64.tar.gz) |
+| **macOS** | `Intel 64-bit` | Archive (`.tar.gz`) | [⬇️ gochat-v0.6.0-darwin-amd64.tar.gz](https://github.com/JoaoVitor615/gochat/releases/download/v0.6.0/gochat-v0.6.0-darwin-amd64.tar.gz) |
 
 ### Building from Source
 
